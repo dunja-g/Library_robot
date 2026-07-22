@@ -12,7 +12,7 @@ You are responsible for all low-level hardware: the Arduino firmware that drives
 ## What You Need
 
 ### Hardware
-- Arduino Uno (or compatible)
+- Arduino Mega
 - MH Electronics Motor Shield (AFMotor library)
 - 4× DC motors connected to M1, M2, M3, M4 on the shield
 - 3× HC-SR04 ultrasonic sensors (Left, Centre, Right)
@@ -45,7 +45,7 @@ US:43.2,18.7,55.1
 
 ## Step 2 — Wire the Ultrasonic Sensors
 
-Connect your 3× HC-SR04 sensors to the Arduino Mega pins (adjust if using Uno — just pick 6 free digital pins):
+Connect your 3× HC-SR04 sensors to the confirmed Arduino Mega pins:
 
 | Sensor | TRIG pin | ECHO pin |
 |---|---|---|
