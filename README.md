@@ -20,7 +20,7 @@ A Raspberry Pi + Arduino robot that navigates to a book when a user selects it f
 | Component | Details |
 |---|---|
 | On-board Computer | Raspberry Pi (any model with camera port) |
-| Microcontroller | Arduino Uno (or compatible) |
+| Microcontroller | Arduino Mega |
 | Motor Shield | MH Electronics (AFMotor library) |
 | Camera | Pi Camera Module |
 | Distance Sensors | 3× HC-SR04 Ultrasonic |
@@ -73,6 +73,8 @@ Library_robot/
 
 See the `docs/` folder for detailed step-by-step guides for each role.
 
+Related implementation reference: [cc-hackers-s-RL-robotics-project](https://github.com/12412825-collab/cc-hackers-s-RL-robotics-project). See `docs/PROJECT_CONTEXT.md` for the agreed reuse boundary.
+
 ---
 
 ## Setup (Run on Raspberry Pi)
@@ -93,6 +95,18 @@ python app.py
 ```
 
 Then open `http://<your-pi-ip-address>:5000` in any browser on the same WiFi network.
+
+### Person 2 Offline Validation
+
+The vision and navigation modules can be tested without Raspberry Pi hardware:
+
+```bash
+pip install opencv-contrib-python numpy pytest
+python -m pytest -q
+python -m aruco_codes.generate_markers
+```
+
+`Camera` accepts an injected backend, so an existing Raspberry Pi camera or baseline-model capture pipeline can be reused as long as it returns BGR NumPy frames.
 
 ---
 
