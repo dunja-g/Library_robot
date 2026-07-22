@@ -171,33 +171,15 @@ class SerialBridge:
 
 ## Step 6 — Test `serial_bridge.py` Independently
 
-Create a quick test script `pi/test_serial.py`:
+Use the integrated diagnostic script `pi/serial_diagnostics.py`:
 
-```python
-from serial_bridge import SerialBridge
-import time
+```bash
+# Safe default: ultrasonic readings only
+python -m pi.serial_diagnostics --port /dev/ttyACM0
 
-bridge = SerialBridge(port='/dev/ttyACM0')
-
-print("Testing FORWARD...")
-bridge.send_forward()
-time.sleep(1)
-bridge.send_stop()
-
-print("Testing ROTATE_LEFT...")
-bridge.send_rotate_left()
-time.sleep(1)
-bridge.send_stop()
-
-print("Testing ultrasonic...")
-readings = bridge.get_ultrasonic()
-print(f"Ultrasonic: {readings}")
-
-bridge.close()
-print("Done!")
+# Raise all wheels before enabling movement
+python -m pi.serial_diagnostics --port /dev/ttyACM0 --motor-test
 ```
-
-Run this on the Pi with the Arduino connected: `python pi/test_serial.py`
 
 ✅ **Pass criteria:** Motors behave correctly and ultrasonic readings print as a dictionary.
 

@@ -100,6 +100,11 @@ export LIBRARY_ROBOT_CAMERA_FPS=20
 Person 1 的 `pi/serial_bridge.py` 合并后：
 
 ```bash
+python -m pi.serial_diagnostics --port /dev/ttyACM0
+
+# 只有架空轮子后才能运行：
+python -m pi.serial_diagnostics --port /dev/ttyACM0 --motor-test
+
 python pi/app.py
 ```
 
