@@ -8,12 +8,16 @@ MockController is used when hardware (camera / Arduino) is unavailable.
 Switch to RealController once Person 1 & 2 have finished their modules.
 """
 
+import os
 import threading
 import time
 import logging
 from flask import Flask, render_template, Response, jsonify, request
 
-from book_db import get_aruco_id, get_all_books
+try:
+    from .book_db import get_aruco_id, get_all_books
+except ImportError:  # Supports running directly with ``python pi/app.py``.
+    from book_db import get_aruco_id, get_all_books
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -24,10 +28,11 @@ app = Flask(__name__)
 # MockController — lets Person 3 develop & test the UI without any hardware.
 # Replace this block with the real imports once teammates are done.
 # ─────────────────────────────────────────────────────────────────────────────
-USE_MOCK = True   # ← Set to False on the real Raspberry Pi
+USE_MOCK = os.getenv("LIBRARY_ROBOT_USE_MOCK", "true").lower() in {
+    "1", "true", "yes", "on"
+}
 
 if USE_MOCK:
-    import os
     import cv2
     import numpy as np
 
@@ -108,23 +113,54 @@ if USE_MOCK:
 
 else:
     # ── Real hardware imports (uncomment when Person 1 & 2 are done) ──────────
-    from serial_bridge    import SerialBridge
-    from camera           import Camera
-    from aruco_detector   import ArucoDetector
-    from robot_controller import RobotController
+    try:
+        from .serial_bridge import SerialBridge
+        from .camera import Camera
+        from .aruco_detector import ArucoDetector
+        from .robot_controller import RobotController
+        from .navigation_config import NavigationConfig
+    except ImportError:
+        from serial_bridge import SerialBridge
+        from camera import Camera
+        from aruco_detector import ArucoDetector
+        from robot_controller import RobotController
+        from navigation_config import NavigationConfig
 
-    serial_bridge = SerialBridge(port='/dev/ttyACM0')
-    camera        = Camera()
-    detector      = ArucoDetector()
-    controller    = RobotController(serial_bridge, camera, detector)
+    config = NavigationConfig.from_env()
+    serial_bridge = SerialBridge(
+        port=os.getenv("LIBRARY_ROBOT_SERIAL_PORT", "/dev/ttyACM0")
+    )
+    camera = Camera(
+        width=config.camera_width,
+        height=config.camera_height,
+        fps=config.camera_fps,
+    )
+    detector = ArucoDetector(min_area_px=config.min_marker_area_px)
+    controller = RobotController(
+        serial_bridge,
+        camera,
+        detector,
+        frame_width=config.camera_width,
+        align_tolerance_px=config.align_tolerance_px,
+        stop_distance_cm=config.stop_distance_cm,
+        obstacle_distance_cm=config.obstacle_distance_cm,
+        scan_timeout_seconds=config.scan_timeout_seconds,
+        target_confirmation_frames=config.target_confirmation_frames,
+        alignment_confirmation_frames=config.alignment_confirmation_frames,
+        target_loss_tolerance_frames=config.target_loss_tolerance_frames,
+    )
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Background control loop — calls controller.step() at ~10 Hz
 # ─────────────────────────────────────────────────────────────────────────────
 def _control_loop():
     while True:
-        controller.step()
-        time.sleep(0.1)
+        try:
+            controller.step()
+        except Exception:
+            logger.exception("Robot control loop failed; controller stopped safely")
+        interval = 0.1 if USE_MOCK else 1.0 / config.control_hz
+        time.sleep(interval)
 
 threading.Thread(target=_control_loop, daemon=True).start()
 
@@ -142,7 +178,7 @@ def video_feed():
     if USE_MOCK:
         stream = camera.generate_mjpeg(controller.get_state)
     else:
-        stream = camera.generate_mjpeg()
+        stream = camera.generate_mjpeg(controller.get_latest_frame)
     return Response(stream, mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
@@ -170,6 +206,8 @@ def request_book():
 
 @app.route('/status')
 def status():
+    if hasattr(controller, "get_status"):
+        return jsonify(controller.get_status())
     return jsonify({'state': controller.get_state()})
 
 

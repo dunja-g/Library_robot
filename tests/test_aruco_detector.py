@@ -40,6 +40,14 @@ def test_empty_frame_contains_no_detections():
     assert ArucoDetector().detect(frame) == []
 
 
+def test_minimum_area_filters_small_markers():
+    frame = as_bgr(create_marker(2, image_size=300, border_px=30))
+    unfiltered = ArucoDetector().detect(frame)
+    threshold = unfiltered[0]["area"] + 1
+
+    assert ArucoDetector(min_area_px=threshold).detect(frame) == []
+
+
 def test_draw_returns_annotated_copy():
     detector = ArucoDetector()
     frame = as_bgr(create_marker(2, image_size=300, border_px=30))

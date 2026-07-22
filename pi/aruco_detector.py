@@ -9,12 +9,19 @@ import numpy as np
 
 
 class ArucoDetector:
-    def __init__(self, dictionary_id: int | None = None):
+    def __init__(
+        self,
+        dictionary_id: int | None = None,
+        min_area_px: float = 0.0,
+    ):
         if not hasattr(cv2, "aruco"):
             raise RuntimeError(
                 "OpenCV ArUco is unavailable. Install opencv-contrib-python."
             )
 
+        if min_area_px < 0:
+            raise ValueError("min_area_px must be non-negative")
+        self.min_area_px = float(min_area_px)
         dictionary_id = (
             cv2.aruco.DICT_5X5_50
             if dictionary_id is None
@@ -63,12 +70,15 @@ class ArucoDetector:
         for marker_id, raw_corners in zip(ids.flatten(), corners):
             points = np.asarray(raw_corners, dtype=np.float32).reshape(4, 2)
             center = points.mean(axis=0)
+            area = float(abs(cv2.contourArea(points)))
+            if area < self.min_area_px:
+                continue
             detections.append(
                 {
                     "id": int(marker_id),
                     "center_x": int(round(float(center[0]))),
                     "center_y": int(round(float(center[1]))),
-                    "area": float(abs(cv2.contourArea(points))),
+                    "area": area,
                     "corners": points.copy(),
                 }
             )
@@ -78,10 +88,10 @@ class ArucoDetector:
         self, frame: np.ndarray, target_id: int
     ) -> dict[str, Any] | None:
         """Return the requested marker detection, or ``None`` if absent."""
-        return next(
-            (item for item in self.detect(frame) if item["id"] == target_id),
-            None,
-        )
+        matches = [
+            item for item in self.detect(frame) if item["id"] == target_id
+        ]
+        return max(matches, key=lambda item: item["area"], default=None)
 
     def draw(
         self,

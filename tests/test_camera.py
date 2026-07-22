@@ -54,5 +54,16 @@ def test_camera_rejects_invalid_backend_frame():
 def test_stopped_camera_cannot_capture():
     camera = Camera(64, 48, backend=FakeBackend(np.zeros((48, 64, 3))))
     camera.stop()
+
+
+def test_mjpeg_waits_until_controller_has_a_frame():
+    backend = FakeBackend(np.zeros((48, 64, 3), dtype=np.uint8))
+    camera = Camera(64, 48, backend=backend)
+    frames = iter([None, np.zeros((48, 64, 3), dtype=np.uint8)])
+
+    chunk = next(camera.generate_mjpeg(lambda: next(frames)))
+
+    assert chunk.startswith(b"--frame")
+    camera.stop()
     with pytest.raises(CameraError):
         camera.get_frame()

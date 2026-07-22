@@ -79,8 +79,12 @@ def test_complete_nominal_transition_to_arrived():
 
     detector.detections = [detection(1, 320)]
     controller.step()
+    assert controller.get_state() == State.SCANNING.value
+    controller.step()
     assert controller.get_state() == State.ALIGNING.value
 
+    controller.step()
+    assert controller.get_state() == State.ALIGNING.value
     controller.step()
     assert controller.get_state() == State.APPROACHING.value
 
@@ -118,9 +122,36 @@ def test_target_loss_during_approach_stops_before_scanning():
     controller, serial, _detector, _clock = make_controller()
     controller.request_book(1)
     controller.state = State.APPROACHING
+    for _ in range(controller.target_loss_tolerance_frames):
+        controller.step()
+        assert controller.get_state() == State.APPROACHING.value
+        assert serial.commands[-1] == "STOP"
     controller.step()
 
     assert controller.get_state() == State.SCANNING.value
+    assert serial.commands[-1] == "STOP"
+
+
+def test_single_detection_does_not_end_scanning():
+    controller, serial, detector, _clock = make_controller()
+    controller.request_book(1)
+    detector.detections = [detection(1)]
+    controller.step()
+    detector.detections = []
+    controller.step()
+
+    assert controller.get_state() == State.SCANNING.value
+    assert serial.commands[-1] == "ROTATE_LEFT"
+
+
+def test_short_target_loss_during_alignment_is_tolerated():
+    controller, serial, _detector, _clock = make_controller()
+    controller.request_book(1)
+    controller.state = State.ALIGNING
+
+    controller.step()
+
+    assert controller.get_state() == State.ALIGNING.value
     assert serial.commands[-1] == "STOP"
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from typing import Callable, Protocol
 
 import cv2
@@ -108,7 +109,7 @@ class Camera:
 
     def generate_mjpeg(
         self,
-        frame_provider: Callable[[], np.ndarray] | None = None,
+        frame_provider: Callable[[], np.ndarray | None] | None = None,
         jpeg_quality: int = 85,
     ):
         """Yield Flask-compatible multipart JPEG frames.
@@ -123,6 +124,9 @@ class Camera:
 
         while True:
             frame = provider()
+            if frame is None:
+                time.sleep(0.02)
+                continue
             success, jpeg = cv2.imencode(".jpg", frame, encode_params)
             if not success:
                 raise CameraError("OpenCV failed to encode the camera frame")

@@ -26,6 +26,9 @@ class RobotController:
     STOP_DISTANCE_CM = 25.0
     OBSTACLE_DISTANCE_CM = 20.0
     SCAN_TIMEOUT_SECONDS = 60.0
+    TARGET_CONFIRMATION_FRAMES = 2
+    ALIGNMENT_CONFIRMATION_FRAMES = 2
+    TARGET_LOSS_TOLERANCE_FRAMES = 3
 
     def __init__(
         self,
@@ -38,6 +41,9 @@ class RobotController:
         stop_distance_cm: float = STOP_DISTANCE_CM,
         obstacle_distance_cm: float = OBSTACLE_DISTANCE_CM,
         scan_timeout_seconds: float = SCAN_TIMEOUT_SECONDS,
+        target_confirmation_frames: int = TARGET_CONFIRMATION_FRAMES,
+        alignment_confirmation_frames: int = ALIGNMENT_CONFIRMATION_FRAMES,
+        target_loss_tolerance_frames: int = TARGET_LOSS_TOLERANCE_FRAMES,
         clock=time.monotonic,
     ):
         if frame_width <= 0 or align_tolerance_px < 0:
@@ -46,6 +52,10 @@ class RobotController:
             raise ValueError("distance thresholds must be positive")
         if scan_timeout_seconds <= 0:
             raise ValueError("scan timeout must be positive")
+        if target_confirmation_frames <= 0 or alignment_confirmation_frames <= 0:
+            raise ValueError("confirmation frame counts must be positive")
+        if target_loss_tolerance_frames < 0:
+            raise ValueError("target loss tolerance must be non-negative")
 
         self.serial = serial_bridge
         self.camera = camera
@@ -55,6 +65,9 @@ class RobotController:
         self.stop_distance_cm = float(stop_distance_cm)
         self.obstacle_distance_cm = float(obstacle_distance_cm)
         self.scan_timeout_seconds = float(scan_timeout_seconds)
+        self.target_confirmation_frames = int(target_confirmation_frames)
+        self.alignment_confirmation_frames = int(alignment_confirmation_frames)
+        self.target_loss_tolerance_frames = int(target_loss_tolerance_frames)
         self._clock = clock
 
         self.state = State.IDLE
@@ -62,6 +75,9 @@ class RobotController:
         self.stop_reason: str | None = None
         self._scan_started_at: float | None = None
         self._latest_frame: np.ndarray | None = None
+        self._target_seen_frames = 0
+        self._aligned_frames = 0
+        self._target_missing_frames = 0
         self._lock = threading.RLock()
 
     def request_book(self, aruco_id: int) -> None:
@@ -75,6 +91,7 @@ class RobotController:
             self.target_id = aruco_id
             self.stop_reason = None
             self._scan_started_at = self._clock()
+            self._reset_detection_counters()
             self.state = State.SCANNING
 
     def get_state(self) -> str:
@@ -100,6 +117,7 @@ class RobotController:
             self.target_id = None
             self.stop_reason = None
             self._scan_started_at = None
+            self._reset_detection_counters()
 
     def step(self) -> np.ndarray:
         """Run one control iteration and return the annotated BGR frame."""
@@ -144,25 +162,39 @@ class RobotController:
 
         if self._target_detection(detections) is not None:
             self.serial.send_stop()
-            self.state = State.ALIGNING
+            self._target_seen_frames += 1
+            if self._target_seen_frames >= self.target_confirmation_frames:
+                self.state = State.ALIGNING
+                self._target_missing_frames = 0
+                self._aligned_frames = 0
             return
+        self._target_seen_frames = 0
         self.serial.send_rotate_left()
 
     def _do_aligning(self, detections: list[dict[str, Any]]) -> None:
         target = self._target_detection(detections)
         if target is None:
             self.serial.send_stop()
-            self.state = State.SCANNING
-            self._scan_started_at = self._clock()
+            self._target_missing_frames += 1
+            self._aligned_frames = 0
+            if self._target_missing_frames > self.target_loss_tolerance_frames:
+                self.state = State.SCANNING
+                self._scan_started_at = self._clock()
+                self._target_seen_frames = 0
             return
 
+        self._target_missing_frames = 0
         error = int(target["center_x"]) - self.frame_width / 2.0
         if abs(error) <= self.align_tolerance_px:
             self.serial.send_stop()
-            self.state = State.APPROACHING
+            self._aligned_frames += 1
+            if self._aligned_frames >= self.alignment_confirmation_frames:
+                self.state = State.APPROACHING
         elif error < 0:
+            self._aligned_frames = 0
             self.serial.send_rotate_left()
         else:
+            self._aligned_frames = 0
             self.serial.send_rotate_right()
 
     def _do_approaching(self, detections: list[dict[str, Any]]) -> None:
@@ -187,16 +219,25 @@ class RobotController:
         target = self._target_detection(detections)
         if target is None:
             self.serial.send_stop()
-            self.state = State.SCANNING
-            self._scan_started_at = self._clock()
+            self._target_missing_frames += 1
+            if self._target_missing_frames > self.target_loss_tolerance_frames:
+                self.state = State.SCANNING
+                self._scan_started_at = self._clock()
+                self._target_seen_frames = 0
             return
 
+        self._target_missing_frames = 0
         error = int(target["center_x"]) - self.frame_width / 2.0
         if abs(error) > self.align_tolerance_px:
             self.serial.send_stop()
             self.state = State.ALIGNING
             return
         self.serial.send_forward()
+
+    def _reset_detection_counters(self) -> None:
+        self._target_seen_frames = 0
+        self._aligned_frames = 0
+        self._target_missing_frames = 0
 
     @staticmethod
     def _valid_readings(readings: Any) -> bool:
