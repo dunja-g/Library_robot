@@ -8,6 +8,7 @@ MockController is used when hardware (camera / Arduino) is unavailable.
 Switch to RealController once Person 1 & 2 have finished their modules.
 """
 
+import atexit
 import os
 import threading
 import time
@@ -149,6 +150,15 @@ else:
         alignment_confirmation_frames=config.alignment_confirmation_frames,
         target_loss_tolerance_frames=config.target_loss_tolerance_frames,
     )
+
+    def _shutdown_hardware():
+        try:
+            controller.reset()
+        finally:
+            camera.stop()
+            serial_bridge.close()
+
+    atexit.register(_shutdown_hardware)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Background control loop — calls controller.step() at ~10 Hz
