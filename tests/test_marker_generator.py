@@ -32,4 +32,3 @@ def test_save_markers_writes_requested_ids(tmp_path):
 def test_create_marker_rejects_invalid_dimensions(kwargs):
     with pytest.raises(ValueError):
         create_marker(**kwargs)
-

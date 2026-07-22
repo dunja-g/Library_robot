@@ -49,4 +49,3 @@ def test_draw_returns_annotated_copy():
 
     assert np.array_equal(frame, original)
     assert not np.array_equal(annotated, original)
-

@@ -56,4 +56,3 @@ def test_stopped_camera_cannot_capture():
     camera.stop()
     with pytest.raises(CameraError):
         camera.get_frame()
-

@@ -229,4 +229,3 @@ class RobotController:
             cv2.LINE_AA,
         )
         return output
-

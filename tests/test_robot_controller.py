@@ -177,4 +177,3 @@ def test_latest_frame_is_a_defensive_copy():
     first[:] = 255
 
     assert not np.array_equal(first, controller.get_latest_frame())
-

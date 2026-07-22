@@ -114,4 +114,3 @@ class ArucoDetector:
                 cv2.LINE_AA,
             )
         return annotated
-
