@@ -54,6 +54,7 @@ class GridController:
         self._dwell_deadline: float | None = None
         self._last_progress_ticks = 0.0
         self._last_progress_at: float | None = None
+        self._step_deadline: float | None = None  # timed mode: drive until this time
 
     def request_grid_mission(self, plan: dict) -> None:
         if not plan.get("outbound") or not plan.get("return"):
@@ -65,6 +66,7 @@ class GridController:
             self.step_index = 0
             self.stop_reason = None
             self._dwell_deadline = None
+            self._step_deadline = None
             self._start_current_step()
 
     def get_state(self) -> str:
@@ -126,6 +128,7 @@ class GridController:
             self.phase = None
             self.step_index = 0
             self._dwell_deadline = None
+            self._step_deadline = None
 
     def step(self) -> None:
         with self._lock:
@@ -149,6 +152,11 @@ class GridController:
                 if self.state == GridState.TURNING and self.turn_source == "imu":
                     self._step_imu_turn()
                     return
+                # --- Timed forward mode (no encoder wires required) ---
+                if step.get("target_seconds", 0.0) > 0.0 and step["action"] == "FORWARD":
+                    self._step_timed_forward()
+                    return
+                # --- Encoder mode ---
                 encoders = self.serial.get_encoders()
                 if not self._valid_encoders(encoders):
                     self._safe_stop("encoder_unavailable")
@@ -188,18 +196,28 @@ class GridController:
         step = self._current_step()
         if step is None:
             raise RuntimeError("No grid route step is available")
+        # IMU turns
         if (
             self.turn_source == "imu"
             and step["action"] in {"TURN_LEFT", "TURN_RIGHT", "UTURN"}
         ):
             self.state = GridState.TURNING
+            self._step_deadline = None
             self._send_imu_turn(step["action"])
             return
+        # Timed forward step
+        if step.get("target_seconds", 0.0) > 0.0 and step["action"] == "FORWARD":
+            self._step_deadline = self._clock() + step["target_seconds"]
+            self.state = GridState.MOVING
+            self._send_action(step["action"])
+            return
+        # Encoder-based step
         if not self.serial.reset_encoders():
             self._safe_stop("encoder_reset_failed")
             return
         self._last_progress_ticks = 0.0
         self._last_progress_at = self._clock()
+        self._step_deadline = None
         self.state = (
             GridState.TURNING
             if step["action"] in {"TURN_LEFT", "TURN_RIGHT", "UTURN"}
@@ -252,7 +270,24 @@ class GridController:
         self.step_index = 0
         self.stop_reason = None
         self._dwell_deadline = None
+        self._step_deadline = None
         self._start_current_step()
+
+    def _step_timed_forward(self) -> None:
+        """Advance a FORWARD step using a time deadline instead of encoder ticks."""
+        if self._step_deadline is None:
+            # Shouldn't happen, but recover gracefully.
+            self._safe_stop("timed_step_no_deadline")
+            return
+        self._send_action("FORWARD")
+        if self._clock() >= self._step_deadline:
+            self.serial.send_stop()
+            self._step_deadline = None
+            self.step_index += 1
+            if self.step_index >= len(self._current_steps()):
+                self._complete_phase()
+            else:
+                self._start_current_step()
 
     def _check_stall(self, progress: float) -> None:
         now = self._clock()

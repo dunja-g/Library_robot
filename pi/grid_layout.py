@@ -1,4 +1,4 @@
-"""Parameterised 2-column by 4-row box layout and encoder route planning."""
+"""Parameterised 2-column by 4-row box layout and encoder/timed route planning."""
 
 from __future__ import annotations
 
@@ -38,12 +38,14 @@ class GridGeometry:
     first_row_distance_cm: float | None = None
     row_spacing_cm: float | None = None
     box_approach_distance_cm: float | None = None
+    forward_speed_cms: float | None = None  # cm/s for timed driving (no encoder)
 
     def __post_init__(self):
         for name, value in (
             ("first_row_distance_cm", self.first_row_distance_cm),
             ("row_spacing_cm", self.row_spacing_cm),
             ("box_approach_distance_cm", self.box_approach_distance_cm),
+            ("forward_speed_cms", self.forward_speed_cms),
         ):
             if value is not None and value <= 0:
                 raise ValueError(f"{name} must be positive")
@@ -59,6 +61,9 @@ class GridGeometry:
             ),
             box_approach_distance_cm=_optional_env_float(
                 "LIBRARY_ROBOT_GRID_APPROACH_CM"
+            ),
+            forward_speed_cms=_optional_env_float(
+                "LIBRARY_ROBOT_FORWARD_SPEED_CMS"
             ),
         )
 
@@ -164,58 +169,109 @@ class EncoderCalibration:
         return max(1, round(distance_cm * self.resolved_ticks_per_cm))
 
 
+def _timed_step(
+    action: str,
+    label: str,
+    distance_cm: float | None,
+    speed_cms: float,
+) -> dict:
+    """Build a route step driven by time rather than encoder ticks."""
+    if distance_cm is not None:
+        target_seconds = round(distance_cm / speed_cms, 3)
+    else:
+        target_seconds = 0.0  # turns handled by IMU; duration is irrelevant
+    return {"action": action, "target_ticks": 0, "target_seconds": target_seconds, "label": label}
+
+
 def build_grid_route(
     box_id: str,
     geometry: GridGeometry,
     calibration: EncoderCalibration,
     turn_source: str = "encoder",
 ) -> dict:
-    """Build a no-marker route from Dock to a box and back to Dock."""
+    """Build a no-marker route from Dock to a box and back to Dock.
+
+    When ``turn_source`` is ``'imu'`` and ``geometry.forward_speed_cms`` is set,
+    every FORWARD step carries a ``target_seconds`` field and ``target_ticks``
+    is set to 0.  The controller uses time-based driving instead of encoder
+    counts so the robot works without wired encoders.
+    """
     box_id = normalize_box_id(box_id)
-    missing = geometry.missing_fields + calibration.missing_fields_for(turn_source)
-    if missing:
-        raise ValueError("Grid navigation is not calibrated: " + ", ".join(missing))
+
+    # Timed mode: IMU turns + time-based forward movement (no encoder wires needed)
+    timed_mode = (
+        turn_source == "imu"
+        and geometry.forward_speed_cms is not None
+        and not geometry.missing_fields
+    )
+
+    if not timed_mode:
+        missing = geometry.missing_fields + calibration.missing_fields_for(turn_source)
+        if missing:
+            raise ValueError("Grid navigation is not calibrated: " + ", ".join(missing))
 
     row = int(box_id[0])
     side = box_id[1]
-    aisle_ticks = calibration.distance_ticks(geometry.distance_to_row(row))
-    approach_ticks = calibration.distance_ticks(
-        float(geometry.box_approach_distance_cm)
-    )
     outward_turn = "TURN_LEFT" if side == "A" else "TURN_RIGHT"
     return_turn = "TURN_RIGHT" if side == "A" else "TURN_LEFT"
 
-    outbound = [
-        {"action": "FORWARD", "target_ticks": aisle_ticks, "label": f"Dock to row {row}"},
-        {
-            "action": outward_turn,
-            "target_ticks": int(calibration.turn_90_ticks or 0),
-            "label": f"Face box {box_id}",
-        },
-        {
-            "action": "FORWARD",
-            "target_ticks": approach_ticks,
-            "label": f"Approach box {box_id}",
-        },
-    ]
-    return_route = [
-        {
-            "action": "UTURN",
-            "target_ticks": int(calibration.turn_180_ticks or 0),
-            "label": "Turn away from box",
-        },
-        {
-            "action": "FORWARD",
-            "target_ticks": approach_ticks,
-            "label": "Return to centre aisle",
-        },
-        {
-            "action": return_turn,
-            "target_ticks": int(calibration.turn_90_ticks or 0),
-            "label": "Face Dock",
-        },
-        {"action": "FORWARD", "target_ticks": aisle_ticks, "label": "Return to Dock"},
-    ]
+    if timed_mode:
+        speed = float(geometry.forward_speed_cms)
+        aisle_cm = geometry.distance_to_row(row)
+        approach_cm = float(geometry.box_approach_distance_cm)
+        outbound = [
+            _timed_step("FORWARD", f"Dock to row {row}", aisle_cm, speed),
+            _timed_step(outward_turn, f"Face box {box_id}", None, speed),
+            _timed_step("FORWARD", f"Approach box {box_id}", approach_cm, speed),
+        ]
+        return_route = [
+            _timed_step("UTURN", "Turn away from box", None, speed),
+            _timed_step("FORWARD", "Return to centre aisle", approach_cm, speed),
+            _timed_step(return_turn, "Face Dock", None, speed),
+            _timed_step("FORWARD", "Return to Dock", aisle_cm, speed),
+        ]
+    else:
+        aisle_ticks = calibration.distance_ticks(geometry.distance_to_row(row))
+        approach_ticks = calibration.distance_ticks(
+            float(geometry.box_approach_distance_cm)
+        )
+        outbound = [
+            {"action": "FORWARD", "target_ticks": aisle_ticks, "target_seconds": 0.0, "label": f"Dock to row {row}"},
+            {
+                "action": outward_turn,
+                "target_ticks": int(calibration.turn_90_ticks or 0),
+                "target_seconds": 0.0,
+                "label": f"Face box {box_id}",
+            },
+            {
+                "action": "FORWARD",
+                "target_ticks": approach_ticks,
+                "target_seconds": 0.0,
+                "label": f"Approach box {box_id}",
+            },
+        ]
+        return_route = [
+            {
+                "action": "UTURN",
+                "target_ticks": int(calibration.turn_180_ticks or 0),
+                "target_seconds": 0.0,
+                "label": "Turn away from box",
+            },
+            {
+                "action": "FORWARD",
+                "target_ticks": approach_ticks,
+                "target_seconds": 0.0,
+                "label": "Return to centre aisle",
+            },
+            {
+                "action": return_turn,
+                "target_ticks": int(calibration.turn_90_ticks or 0),
+                "target_seconds": 0.0,
+                "label": "Face Dock",
+            },
+            {"action": "FORWARD", "target_ticks": aisle_ticks, "target_seconds": 0.0, "label": "Return to Dock"},
+        ]
+
     return {
         "box_id": box_id,
         "row": row,
