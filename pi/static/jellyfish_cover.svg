@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" width="200" height="300">
+  <defs>
+    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#071b36"/>
+      <stop offset="50%" stop-color="#0a3963"/>
+      <stop offset="100%" stop-color="#05152b"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ff7b3d" stop-opacity="0.8"/>
+      <stop offset="50%" stop-color="#e94e77" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#0a3963" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Book Cover Background -->
+  <rect width="200" height="300" rx="6" fill="url(#bg-grad)"/>
+
+  <!-- Top Publisher Banner -->
+  <text x="14" y="24" font-family="Inter, Arial, sans-serif" font-weight="800" font-size="10" fill="#e94e77" letter-spacing="1.5">O'REILLY</text>
+
+  <!-- Main Title -->
+  <text x="14" y="54" font-family="Inter, Arial, sans-serif" font-weight="900" font-size="24" fill="#FFFFFF" letter-spacing="-0.5">DEEP</text>
+  <text x="14" y="78" font-family="Inter, Arial, sans-serif" font-weight="900" font-size="24" fill="#FFFFFF" letter-spacing="-0.5">LEARNING</text>
+  <text x="14" y="94" font-family="Inter, Arial, sans-serif" font-weight="500" font-size="9" fill="#a4c6eb">A Modern Approach</text>
+
+  <!-- Glowing Artwork Area (Jellyfish / Neural Net) -->
+  <circle cx="100" cy="180" r="70" fill="url(#glow)"/>
+  
+  <g transform="translate(100, 165)">
+    <!-- Jellyfish Bell -->
+    <path d="M -35 0 C -35 -40 35 -40 35 0 C 20 -5 10 5 0 0 C -10 5 -20 -5 -35 0 Z" fill="rgba(255, 230, 200, 0.85)" stroke="#ffffff" stroke-width="1.5"/>
+    <path d="M -25 -10 C -15 -25 15 -25 25 -10" fill="none" stroke="#ff9d5c" stroke-width="2"/>
+    
+    <!-- Tentacles -->
+    <path d="M -25 0 C -30 20 -15 45 -22 65" fill="none" stroke="#ff7b3d" stroke-width="2"/>
+    <path d="M -15 0 C -10 25 -20 50 -12 70" fill="none" stroke="#ffffff" stroke-width="1.8"/>
+    <path d="M -5 0 C 0 30 -8 55 -3 75" fill="none" stroke="#ffb380" stroke-width="2"/>
+    <path d="M 5 0 C 0 30 8 55 3 75" fill="none" stroke="#ffffff" stroke-width="1.8"/>
+    <path d="M 15 0 C 10 25 20 50 12 70" fill="none" stroke="#ff7b3d" stroke-width="2"/>
+    <path d="M 25 0 C 30 20 15 45 22 65" fill="none" stroke="#ffb380" stroke-width="1.8"/>
+  </g>
+
+  <!-- Author Footnote -->
+  <text x="14" y="272" font-family="Inter, Arial, sans-serif" font-size="7.5" fill="#8daecf">Ian Goodfellow, Yoshua Bengio,</text>
+  <text x="14" y="282" font-family="Inter, Arial, sans-serif" font-size="7.5" fill="#8daecf">Aaron Courville</text>
+</svg>
