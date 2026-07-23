@@ -34,7 +34,7 @@ button, input { font: inherit; }
 button { cursor: pointer; }
 
 /* ============================================================
-   1. Compact White Header
+   1. Compact White Header with NUS Shield Crest Logo
    ============================================================ */
 .topbar {
   height: 76px;
@@ -50,33 +50,50 @@ button { cursor: pointer; }
 }
 
 .brand {
-  min-width: 340px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
+  min-width: 350px;
+  display: flex !important;
+  align-items: center !important;
+  gap: 14px !important;
   color: var(--navy);
   text-decoration: none;
 }
 
-.nus-crest {
+.logo-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  filter: drop-shadow(0 2px 4px rgba(0, 61, 124, 0.15));
 }
 
-.brand-text strong {
-  display: block;
-  font-size: 1.65rem;
-  line-height: 1;
-  letter-spacing: -0.04em;
-  color: var(--navy);
+.nus-crest {
+  display: block !important;
+  flex-shrink: 0;
+  filter: drop-shadow(0 2px 5px rgba(0, 61, 124, 0.20));
 }
 
-.brand-text small {
-  display: block;
-  margin-top: 4px;
-  color: var(--blue);
-  font-size: 0.72rem;
-  font-weight: 500;
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.brand-title, .brand strong {
+  display: block !important;
+  font-size: 1.65rem !important;
+  line-height: 1.05 !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.04em !important;
+  color: var(--navy) !important;
+  margin: 0 !important;
+}
+
+.brand-subtitle, .brand small {
+  display: block !important;
+  margin-top: 3px !important;
+  color: var(--blue) !important;
+  font-size: 0.72rem !important;
+  font-weight: 600 !important;
+  white-space: nowrap !important;
 }
 
 .main-nav {
@@ -178,10 +195,10 @@ button { cursor: pointer; }
 .mode-chip { display: none; }
 
 /* ============================================================
-   2. Level 2: Search Hero Band (Pale Orange Campus Illustration)
+   2. Level 2: Search Hero Band (Pale Orange Campus Line Art + Mascot)
    ============================================================ */
 .search-hero {
-  padding: 22px 24px 18px;
+  padding: 18px max(28px, calc((100vw - 1540px) / 2)) 16px;
   background: linear-gradient(180deg, rgba(255, 248, 238, 0.96) 0%, rgba(255, 255, 255, 0.92) 100%);
   border-bottom: 1px solid #e9dfd2;
   position: relative;
@@ -200,16 +217,36 @@ button { cursor: pointer; }
   background-image: url("data:image/svg+xml,%3Csvg width='760' height='112' viewBox='0 0 760 112' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='%23ef7c00' stroke-width='1.2'%3E%3Cpath d='M4 104h752M38 104V56h128v48M49 56V39l53-22 53 22v17M59 104V69h18v35m13 0V69h18v35m13 0V69h18v35M184 104V45h148v59M198 104V59h18v45m15 0V59h18v45m15 0V59h18v45m15 0V59h18v45M349 104V64h80v40M360 64V48h58v16m-48 40V76h16v28m14 0V76h16v28M448 104V36h174v68M463 104V51h22v53m17 0V51h22v53m17 0V51h22v53m17 0V51h22v53M637 104V58h88v46M649 104V72h18v32m14 0V72h18v32'/%3E%3Cpath d='M24 104c8-20 16-25 25 0m563 0c8-22 18-25 28 0M333 104c6-17 13-21 20 0'/%3E%3C/g%3E%3C/svg%3E");
 }
 
+.hero-content {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  width: min(1200px, 100%);
+  margin: 0 auto;
+}
+
+.mascot-avatar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 4px 10px rgba(239, 124, 0, 0.20));
+}
+
+.search-main {
+  flex: 1;
+  min-width: 0;
+}
+
 /* Level 3: Pure-White Elevated Search Card */
 .search-shell {
-  width: min(1040px, 100%);
+  width: 100%;
   height: 56px;
-  margin: 0 auto;
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr) 42px 140px;
+  grid-template-columns: 54px minmax(0, 1fr) 40px 136px;
   align-items: center;
   border: 1px solid var(--border);
-  border-radius: 999px; /* Pill shape search bar as in reference */
+  border-radius: 999px; /* Pill shape search bar */
   overflow: hidden;
   background: #ffffff;
   box-shadow: var(--search-shadow);
@@ -271,18 +308,18 @@ button { cursor: pointer; }
 }
 
 .popular-row {
-  width: min(1040px, 100%);
-  margin: 12px auto 0;
+  margin: 10px 0 0;
   display: flex;
   align-items: center;
   gap: 10px;
   color: var(--muted);
   font-size: 0.76rem;
   white-space: nowrap;
+  overflow-x: auto;
 }
 
 .suggestion {
-  padding: 6px 16px;
+  padding: 5px 15px;
   border: 1px solid #d5deec;
   border-radius: 999px;
   color: #4b5f82;
@@ -377,7 +414,7 @@ button { cursor: pointer; }
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
-.book-cover small {
+.publisher-banner {
   color: #ffc847;
   font-size: 0.58rem;
   font-weight: 700;
@@ -840,7 +877,7 @@ button { cursor: pointer; }
   backdrop-filter: blur(4px);
 }
 
-/* Orange Bordered Floating Badge as in Image A */
+/* Orange Bordered Floating Badge (3B) as in Image A */
 .camera-target {
   position: absolute;
   right: 14px;
@@ -970,7 +1007,7 @@ footer .divider { margin: 0 12px; color: #a4b5d4; }
 @media (min-width: 1200px) and (max-width: 1450px) {
   .topbar { gap: 18px; padding: 0 20px; }
   .brand { min-width: 280px; }
-  .brand-text strong { font-size: 1.45rem; }
+  .brand-title, .brand strong { font-size: 1.45rem !important; }
   .main-nav { gap: 24px; }
   .dashboard { grid-template-columns: minmax(0, 30fr) minmax(0, 43fr) minmax(0, 27fr); gap: 16px; }
 }
@@ -988,7 +1025,7 @@ footer .divider { margin: 0 12px; color: #a4b5d4; }
 
 @media (max-width: 767px) {
   .topbar { height: 68px; }
-  .brand-text small, .header-icon, .profile-icon { display: none; }
+  .brand-subtitle, .header-icon, .profile-icon { display: none; }
   .dashboard { width: calc(100% - 24px); grid-template-columns: 1fr; }
   .book-panel, .workspace, .right-column { grid-column: 1; grid-row: auto; }
   .workspace-grid { grid-template-columns: 1fr; }
