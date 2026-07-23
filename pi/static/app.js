@@ -1,75 +1,122 @@
 const STATE_CONFIG = {
-  IDLE:        { icon: '●', colour: '#7a8099', desc: 'Waiting for a book request', progress: 0 },
-  SCANNING:    { icon: '⌕', colour: '#4f8ef7', desc: 'Scanning for the next ArUco marker', progress: 25 },
-  ALIGNING:    { icon: '◎', colour: '#f59e0b', desc: 'Aligning with the correct marker', progress: 45 },
-  APPROACHING: { icon: '➜', colour: '#22c55e', desc: 'Approaching the verified waypoint', progress: 65 },
-  MOVING:      { icon: '➜', colour: '#22c55e', desc: 'Following the encoder distance target', progress: 65 },
-  TURNING:     { icon: '↻', colour: '#a855f7', desc: 'Executing the configured timed turn', progress: 55 },
-  ARRIVED:     { icon: '✓', colour: '#16a34a', desc: 'Destination reached; return follows', progress: 100 },
-  DWELLING:    { icon: '◷', colour: '#16a34a', desc: 'Waiting at the book destination', progress: 100 },
-  DOCKED:      { icon: '⌂', colour: '#38bdf8', desc: 'Return complete — robot is at Dock', progress: 100 },
-  STOPPED:     { icon: '!', colour: '#ef4444', desc: 'Safety stop — inspect before resetting', progress: 0 },
+  IDLE:     { icon: '●', colour: '#7a8099', desc: 'Enter a book to begin', progress: 0 },
+  MOVING:   { icon: '➜', colour: '#22c55e', desc: 'Following encoder distance target', progress: 55 },
+  TURNING:  { icon: '↻', colour: '#a855f7', desc: 'Turning with the MPU6500', progress: 70 },
+  ARRIVED:  { icon: '✓', colour: '#16a34a', desc: 'Book location reached; return follows', progress: 100 },
+  DWELLING: { icon: '◷', colour: '#16a34a', desc: 'Waiting at the book location', progress: 100 },
+  DOCKED:   { icon: '⌂', colour: '#38bdf8', desc: 'Return complete — robot is at Dock', progress: 100 },
+  STOPPED:  { icon: '!', colour: '#ef4444', desc: 'Safety stop — inspect before resetting', progress: 0 },
 };
 
 let currentState = 'IDLE';
 let toastTimeout = null;
-let navigationMode = 'aruco';
+let searchTimer = null;
 
-window.addEventListener('DOMContentLoaded', () => { loadDestinations(); pollStatus(); setInterval(pollStatus, 700); });
+window.addEventListener('DOMContentLoaded', () => {
+  loadCatalogue();
+  pollStatus();
+  setInterval(pollStatus, 700);
+  const input = document.getElementById('book-search');
+  input.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => searchCatalogue(input.value), 180);
+  });
+  input.addEventListener('keydown', event => {
+    if (event.key === 'Enter') sendRobot();
+  });
+});
 
-async function loadDestinations() {
+async function loadCatalogue() {
   try {
-    const modeData = await fetch('/navigation_mode').then(r => r.json());
-    navigationMode = modeData.mode;
-    const isGrid = navigationMode === 'grid';
-    const destinations = await fetch(isGrid ? '/boxes' : '/books').then(r => r.json());
-    const select = document.getElementById('book-select');
-    select.innerHTML = `<option value="" disabled selected>Choose ${isGrid ? 'a box' : 'a book'}</option>`;
-    destinations.forEach(value => { const option = document.createElement('option'); option.value = value; option.textContent = value; select.appendChild(option); });
-    document.getElementById('destination-select-label').textContent = isGrid ? 'Select a Box' : 'Select a Book';
-    document.getElementById('destination-summary-label').textContent = isGrid ? 'Box' : 'Book';
-    document.getElementById('current-target-label').textContent = isGrid ? 'Current action' : 'Current marker';
-    if (isGrid && !modeData.grid_configured) {
-      showToast(`Grid calibration pending: ${modeData.missing.join(', ')}`);
+    const mode = await fetch('/navigation_mode').then(r => r.json());
+    if (mode.marker_scanning) throw new Error('Unexpected marker mode');
+    await searchCatalogue('');
+    if (!mode.grid_configured) {
+      showToast(`Grid dimensions pending: ${mode.missing.join(', ')}`);
     }
-  } catch (_) { showToast('Could not load destinations'); }
+  } catch (_) {
+    showToast('Could not load the fixed-grid catalogue');
+  }
+}
+
+async function searchCatalogue(query) {
+  try {
+    const results = await fetch(`/search_books?q=${encodeURIComponent(query)}`).then(r => r.json());
+    const options = document.getElementById('book-options');
+    options.innerHTML = '';
+    results.forEach(book => {
+      const option = document.createElement('option');
+      option.value = book.title;
+      option.label = `${book.book_id} · ${book.location_code}`;
+      options.appendChild(option);
+    });
+    const result = document.getElementById('search-result');
+    if (!query) {
+      result.textContent = `${results.length} numbered book${results.length === 1 ? '' : 's'} available`;
+    } else if (results.length === 1) {
+      const book = results[0];
+      result.textContent = `${book.title} · ${book.book_id} · ${book.location_code}`;
+    } else {
+      result.textContent = results.length
+        ? `${results.length} matches — choose a more specific book`
+        : 'No numbered book found';
+    }
+  } catch (_) {
+    document.getElementById('search-result').textContent = 'Search unavailable';
+  }
 }
 
 async function sendRobot() {
-  const destination = document.getElementById('book-select').value;
-  if (!destination) return showToast('Select a destination first');
+  const query = document.getElementById('book-search').value.trim();
+  if (!query) return showToast('Enter a book title or number');
   const button = document.getElementById('send-btn');
   button.disabled = true;
+  let started = false;
   try {
-    const isGrid = navigationMode === 'grid';
-    const response = await fetch(isGrid ? '/request_box' : '/request_book', {
+    const response = await fetch('/request_book', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(isGrid ? {box_id: destination} : {title: destination}),
+      body: JSON.stringify({query}),
     });
     const data = await response.json();
-    if (response.ok) {
-      const summary = isGrid ? `box ${data.box_id}` : data.route.join(' → ');
-      showToast(`Robot dispatched: ${summary}`);
-    } else {
+    if (!response.ok) {
       showToast(data.message);
+      return;
     }
+    document.getElementById('book-search').value = data.title;
+    document.getElementById('search-result').textContent =
+      `${data.title} · ${data.book_code} · ${data.location_code}`;
+    started = true;
+    showToast(`Route started: ${data.location_code}`);
     await pollStatus();
-  } catch (_) { showToast('Failed to send the request'); }
+  } catch (_) {
+    showToast('Failed to start the route');
+  } finally {
+    if (!started) button.disabled = false;
+  }
 }
 
 async function resetRobot() {
-  try { await fetch('/reset', {method: 'POST'}); showToast('Robot stopped and mission cleared'); await pollStatus(); }
-  catch (_) { showToast('Reset failed'); }
+  try {
+    await fetch('/reset', {method: 'POST'});
+    showToast('Robot stopped and mission cleared');
+    await pollStatus();
+  } catch (_) {
+    showToast('Reset failed');
+  }
 }
 
 async function pollStatus() {
   try {
     const data = await fetch('/status').then(r => r.json());
     updateUI(data);
-    const badge = document.getElementById('connection-badge'); badge.textContent = '● Live'; badge.style.color = '';
+    const badge = document.getElementById('connection-badge');
+    badge.textContent = '● Fixed Grid';
+    badge.style.color = '';
   } catch (_) {
-    const badge = document.getElementById('connection-badge'); badge.textContent = '● Offline'; badge.style.color = '#ef4444';
+    const badge = document.getElementById('connection-badge');
+    badge.textContent = '● Offline';
+    badge.style.color = '#ef4444';
   }
 }
 
@@ -84,28 +131,46 @@ function updateUI(data) {
   document.getElementById('status-desc').textContent = cfg.desc;
   document.getElementById('progress-fill').style.width = cfg.progress + '%';
   document.getElementById('reason-text').textContent = data.reason ? `Reason: ${data.reason}` : '';
-  const overlay = document.getElementById('overlay-state-badge'); overlay.textContent = state; overlay.className = `overlay-badge ${state.toLowerCase()}`;
-  document.getElementById('mission-book').textContent = data.box_id || data.book || '—';
-  const loc = data.location;
+  const overlay = document.getElementById('overlay-state-badge');
+  overlay.textContent = state;
+  overlay.className = `overlay-badge ${state.toLowerCase()}`;
+  document.getElementById('mission-book').textContent = data.book
+    ? `${data.book} · ${data.location_code}`
+    : '—';
   document.getElementById('mission-location').textContent = data.box_id
-    ? `Row ${data.row} / Column ${data.column}`
-    : (loc ? `${loc.zone} / ${loc.shelf} / L${loc.level} / S${loc.slot}` : '—');
+    ? `Box ${data.box_id} / Layer ${data.layer} / Position ${data.position}`
+    : '—';
   document.getElementById('mission-phase').textContent = data.phase || '—';
-  document.getElementById('mission-marker').textContent = data.current_action || (data.current_marker_id == null ? '—' : `${data.current_marker_id} · ${data.current_marker_name || ''}`);
-  document.getElementById('mission-progress').textContent = data.step_count ? `${data.step_index} / ${data.step_count}` : (data.waypoint_count ? `${data.waypoint_index} / ${data.waypoint_count}` : '—');
-  const activeRoute = data.phase === 'RETURNING' ? data.return_route : data.route;
-  document.getElementById('mission-route').textContent = data.current_step_label || (activeRoute ? activeRoute.join(' → ') : '—');
-  document.getElementById('send-btn').disabled = !['IDLE', 'DOCKED', 'STOPPED'].includes(state);
-  if (state !== previous && state === 'ARRIVED') { showToast('Book destination reached'); speak('Book destination reached. The robot will now return to the dock.'); }
-  if (state !== previous && state === 'DOCKED') { showToast('Robot returned to Dock'); speak('Return complete. The robot is back at the dock.'); }
-  if (state !== previous && state === 'STOPPED') showToast(`Safety stop: ${data.reason || 'unknown reason'}`);
+  document.getElementById('mission-marker').textContent = data.current_action || '—';
+  document.getElementById('mission-progress').textContent =
+    data.step_count ? `${data.step_index} / ${data.step_count}` : '—';
+  document.getElementById('mission-route').textContent = data.current_step_label || '—';
+  document.getElementById('send-btn').disabled =
+    !['IDLE', 'DOCKED', 'STOPPED'].includes(state);
+  if (state !== previous && state === 'ARRIVED') {
+    showToast(`Book location reached: ${data.location_code}`);
+    speak(`Book location reached. Box ${data.box_id}, layer ${data.layer}, position ${data.position}.`);
+  }
+  if (state !== previous && state === 'DOCKED') {
+    showToast('Robot returned to Dock');
+    speak('Return complete. The robot is back at the dock.');
+  }
+  if (state !== previous && state === 'STOPPED') {
+    showToast(`Safety stop: ${data.reason || 'unknown reason'}`);
+  }
 }
 
 function speak(message) {
-  if ('speechSynthesis' in window) { window.speechSynthesis.cancel(); window.speechSynthesis.speak(new SpeechSynthesisUtterance(message)); }
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(new SpeechSynthesisUtterance(message));
+  }
 }
 
 function showToast(message) {
-  const toast = document.getElementById('toast'); toast.textContent = message; toast.classList.add('show');
-  clearTimeout(toastTimeout); toastTimeout = setTimeout(() => toast.classList.remove('show'), 3500);
+  const toast = document.getElementById('toast');
+  toast.textContent = message;
+  toast.classList.add('show');
+  clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => toast.classList.remove('show'), 3500);
 }

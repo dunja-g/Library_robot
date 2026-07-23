@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Library Robot — Book Navigation</title>
+  <title>Library Robot — Fixed Grid Book Finder</title>
   <meta name="description" content="Control and monitor the multi-waypoint Library Robot." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
@@ -14,7 +14,7 @@
   <div class="app-container">
     <header class="header">
       <div class="header-icon">📚</div>
-      <div><h1 class="header-title">Library Robot</h1><p class="header-sub">Multi-waypoint Book Navigation</p></div>
+      <div><h1 class="header-title">Library Robot</h1><p class="header-sub">Fixed Grid · Encoder + IMU · No Scanning</p></div>
       <div class="header-badge" id="connection-badge">● Live</div>
     </header>
     <main class="main-grid">
@@ -28,7 +28,7 @@
           <div><span id="destination-summary-label">Book</span><strong id="mission-book">—</strong></div>
           <div><span>Location</span><strong id="mission-location">—</strong></div>
           <div><span>Phase</span><strong id="mission-phase">—</strong></div>
-          <div><span id="current-target-label">Current marker</span><strong id="mission-marker">—</strong></div>
+          <div><span id="current-target-label">Current action</span><strong id="mission-marker">—</strong></div>
           <div><span>Progress</span><strong id="mission-progress">—</strong></div>
           <div><span>Route</span><strong id="mission-route">—</strong></div>
         </div>
@@ -45,9 +45,15 @@
         </div>
         <hr class="divider" />
         <div class="book-section">
-          <p class="section-label" id="destination-select-label">Select a Book</p>
-          <div class="select-wrapper"><select id="book-select" class="book-select"><option value="" disabled selected>Loading books…</option></select><span class="select-arrow">▾</span></div>
-          <button id="send-btn" class="btn btn-primary" onclick="sendRobot()"><span class="btn-icon">▶</span> Send Robot</button>
+          <p class="section-label" id="destination-select-label">Find a Book</p>
+          <div class="select-wrapper">
+            <input id="book-search" class="book-select" list="book-options"
+                   placeholder="Title, BK001, or 1A-L3-P21"
+                   autocomplete="off" />
+            <datalist id="book-options"></datalist>
+          </div>
+          <div class="search-result" id="search-result">Enter a title, book ID, or location code.</div>
+          <button id="send-btn" class="btn btn-primary" onclick="sendRobot()"><span class="btn-icon">⌕</span> Find &amp; Send Robot</button>
         </div>
         <hr class="divider" />
         <div class="reset-section">

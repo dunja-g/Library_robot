@@ -1,60 +1,49 @@
 import importlib
 
 
-def test_mock_app_book_request_status_and_reset(monkeypatch):
+def load_mock_app(monkeypatch):
     monkeypatch.setenv("LIBRARY_ROBOT_USE_MOCK", "true")
-    module = importlib.import_module("pi.app")
-    client = module.app.test_client()
-
-    books = client.get("/books")
-    assert books.status_code == 200
-    assert "1984" in books.get_json()
-
-    request = client.post("/request_book", json={"title": "1984"})
-    assert request.status_code == 200
-    assert request.get_json()["aruco_id"] == 1
-    assert client.get("/status").get_json()["state"] == "SCANNING"
-
-    reset = client.post("/reset")
-    assert reset.status_code == 200
-    assert client.get("/status").get_json()["state"] == "IDLE"
-
-
-def test_mock_deep_learning_mission_runs_to_dock(monkeypatch):
-    monkeypatch.setenv("LIBRARY_ROBOT_USE_MOCK", "true")
-    module = importlib.import_module("pi.app")
-    module.controller.reset()
-    client = module.app.test_client()
-
-    response = client.post("/request_book", json={"title": "Deep Learning"})
-    payload = response.get_json()
-    assert response.status_code == 200
-    assert payload["destination"] == {"zone": "B", "shelf": "B3", "level": 3, "slot": 12}
-    assert payload["route"] == [101, 105, 203]
-
-    for _ in range(100):
-        module.controller.step()
-        if module.controller.get_state() == "DOCKED":
-            break
-    status = client.get("/status").get_json()
-    assert status["state"] == "DOCKED"
-    assert status["phase"] == "COMPLETE"
-    assert status["return_route"] == [105, 101, 0]
-
-
-def test_mock_grid_mode_accepts_box_route(monkeypatch):
-    monkeypatch.setenv("LIBRARY_ROBOT_USE_MOCK", "true")
-    monkeypatch.setenv("LIBRARY_ROBOT_NAVIGATION_MODE", "grid")
     module = importlib.reload(importlib.import_module("pi.app"))
     module.controller.destination_dwell_seconds = 0
-    client = module.app.test_client()
+    module.controller.reset()
+    return module, module.app.test_client()
 
-    assert client.get("/boxes").get_json() == [
-        "1A", "1B", "2A", "2B", "3A", "3B", "4A", "4B"
-    ]
-    response = client.post("/request_box", json={"box_id": "3b"})
+
+def test_app_is_fixed_grid_only_and_lists_numbered_books(monkeypatch):
+    _module, client = load_mock_app(monkeypatch)
+    mode = client.get("/navigation_mode").get_json()
+    assert mode["mode"] == "grid"
+    assert mode["marker_scanning"] is False
+    assert client.get("/books").get_json() == ["Deep Learning"]
+    assert client.post("/request_box", json={"box_id": "1A"}).status_code == 404
+
+
+def test_search_by_title_book_id_location_and_partial_text(monkeypatch):
+    _module, client = load_mock_app(monkeypatch)
+    for query in ("Deep Learning", "BK001", "1A-L3-P21", "deep"):
+        results = client.get("/search_books", query_string={"q": query}).get_json()
+        assert len(results) == 1
+        assert results[0]["title"] == "Deep Learning"
+        assert results[0]["location_code"] == "1A-L3-P21"
+
+
+def test_book_number_dispatches_without_marker_scan(monkeypatch):
+    module, client = load_mock_app(monkeypatch)
+    response = client.post("/request_book", json={"query": "BK001"})
+    payload = response.get_json()
     assert response.status_code == 200
-    assert response.get_json()["box_id"] == "3B"
+    assert payload["location_code"] == "1A-L3-P21"
+    assert payload["destination"] == {
+        "box_id": "1A",
+        "layer": 3,
+        "position": 21,
+    }
+
+    status = client.get("/status").get_json()
+    assert status["state"] == "MOVING"
+    assert status["book"] == "Deep Learning"
+    assert status["current_action"] == "FORWARD"
+    assert "current_marker_id" not in status
 
     for _ in range(20):
         module.controller.step()
@@ -63,4 +52,19 @@ def test_mock_grid_mode_accepts_box_route(monkeypatch):
     status = client.get("/status").get_json()
     assert status["state"] == "DOCKED"
     assert status["phase"] == "COMPLETE"
-    assert status["navigation_mode"] == "grid_encoder"
+
+
+def test_partial_unique_book_query_can_start_and_reset(monkeypatch):
+    _module, client = load_mock_app(monkeypatch)
+    response = client.post("/request_book", json={"query": "learning"})
+    assert response.status_code == 200
+    assert response.get_json()["title"] == "Deep Learning"
+    assert client.post("/reset").status_code == 200
+    assert client.get("/status").get_json()["state"] == "IDLE"
+
+
+def test_unknown_book_does_not_move(monkeypatch):
+    _module, client = load_mock_app(monkeypatch)
+    response = client.post("/request_book", json={"query": "unknown"})
+    assert response.status_code == 404
+    assert client.get("/status").get_json()["state"] == "IDLE"

@@ -1,26 +1,24 @@
 # Library Robot — Multi-Waypoint MVP
 
-A Raspberry Pi and Arduino Mega robot that guides a user to a selected book by following a configured sequence of OpenCV ArUco markers. Navigation is a deterministic Python state machine with ultrasonic fail-safe stopping.
+A Raspberry Pi 5 and Arduino Mega robot that guides a user to a numbered
+fixed-grid book location using wheel encoders, an MPU6500, and ultrasonic
+fail-safe stopping. The current application does not load marker scanning.
+Legacy vision modules remain only for historical tests.
 
-The project now also includes an optional marker-free `grid` mode for a fixed
+The default `grid` mode supports a marker-free fixed
 1A-4B layout. It generates routes from measured dimensions and executes them
 with left/right wheel encoders. See
 [docs/FIXED_GRID_ENCODER.md](docs/FIXED_GRID_ENCODER.md).
 
 ## Current demonstration
 
-The catalogue contains **Deep Learning** at zone B, shelf B3, level 3, slot 12.
-
-- Outbound: `101 → 105 → 203`
-- Destination: marker `203` at shelf B3
-- Return: `105 → 101 → 0`
-- Dock: marker `0`
-
-At each waypoint the robot scans only for the expected marker, aligns, approaches it, validates the marker and ultrasonic distance together, then executes the configured timed turn. After reaching the shelf it waits briefly and returns automatically.
+The catalogue contains **Deep Learning** at `1A-L3-P21`: box 1A, layer 3,
+position 21. The base generates a distance-and-turn route to box 1A, announces
+the precise book location, then returns automatically. No marker is required.
 
 ## Software flow
 
-`IDLE → SCANNING → ALIGNING → APPROACHING → TURNING → … → ARRIVED → RETURNING → DOCKED`
+`IDLE → MOVING → TURNING → MOVING → ARRIVED → RETURNING → DOCKED`
 
 Any invalid ultrasonic reading, obstacle, timeout, or controller exception sends a motor stop and enters `STOPPED`. `/reset` stops the motors and clears the mission; it does not physically drive the robot back to Dock.
 
@@ -35,13 +33,14 @@ pi/mission.py                  Outbound/return mission progress
 pi/grid_layout.py              Parameterised 1A-4B geometry and route generator
 pi/encoder_navigation.py       Encoder motion state machine
 pi/robot_controller.py         Non-blocking navigation state machine
-pi/aruco_detector.py           OpenCV ArUco detection
+pi/aruco_detector.py           Legacy vision module (not loaded by current app)
 pi/camera.py                   Picamera2 capture and MJPEG stream
 pi/serial_bridge.py            Raspberry Pi ↔ Arduino serial protocol
 pi/navigation_config.py        Environment-based tuning
 tests/                         Hardware-free unit and integration tests
 docs/MULTI_WAYPOINT_MVP.md     Placement, tuning, safety, and runbook
 docs/HARDWARE_PINOUT.md        Final Mega, encoder, IMU, and sensor wiring
+docs/BOOK_NUMBERING.md         1A-L3-P21 book-location numbering convention
 ```
 
 ## Run without hardware

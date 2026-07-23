@@ -8,6 +8,10 @@ from copy import deepcopy
 BOOK_DATABASE = {
     "Deep Learning": {
         "book_id": "BK001",
+        "box_id": "1A",
+        "layer": 3,
+        "position": 21,
+        "location_code": "1A-L3-P21",
         "zone": "B",
         "shelf_number": 3,
         "shelf_code": "B3",
@@ -91,7 +95,7 @@ def get_book_location(title: str) -> dict | None:
     book = get_book(title)
     if book is None:
         return None
-    return {
+    location = {
         "zone": book["zone"],
         "shelf_number": book["shelf_number"],
         "shelf_code": book["shelf_code"],
@@ -99,6 +103,14 @@ def get_book_location(title: str) -> dict | None:
         "slot": book["slot"],
         "destination_marker": book["destination_marker"],
     }
+    if "box_id" in book:
+        location.update(
+            box_id=book["box_id"],
+            layer=book["layer"],
+            position=book["position"],
+            location_code=book["location_code"],
+        )
+    return location
 
 
 def get_aruco_id(title: str) -> int | None:
@@ -107,6 +119,53 @@ def get_aruco_id(title: str) -> int | None:
     return None if book is None else int(book["destination_marker"])
 
 
-def get_all_books() -> list[str]:
-    """Return book titles without changing the existing frontend contract."""
+def get_all_books(*, grid_only: bool = False) -> list[str]:
+    """Return all titles or only books assigned to a fixed-grid box."""
+    if grid_only:
+        return [
+            title for title, book in BOOK_DATABASE.items() if "box_id" in book
+        ]
     return list(BOOK_DATABASE.keys())
+
+
+def search_books(query: str = "") -> list[dict]:
+    """Search fixed-grid books by title, book ID, or location code."""
+    needle = str(query).strip().casefold()
+    results = []
+    for title in get_all_books(grid_only=True):
+        book = get_book(title)
+        searchable = (
+            title,
+            book["book_id"],
+            book["location_code"],
+            book["box_id"],
+        )
+        if needle and not any(needle in value.casefold() for value in searchable):
+            continue
+        results.append(
+            {
+                "title": title,
+                "book_id": book["book_id"],
+                "location_code": book["location_code"],
+                "box_id": book["box_id"],
+                "layer": book["layer"],
+                "position": book["position"],
+            }
+        )
+    return results
+
+
+def find_book(query: str) -> dict | None:
+    """Resolve an exact title, book ID, or location code."""
+    needle = str(query).strip().casefold()
+    if not needle:
+        return None
+    for title in get_all_books(grid_only=True):
+        book = get_book(title)
+        if needle in {
+            title.casefold(),
+            book["book_id"].casefold(),
+            book["location_code"].casefold(),
+        }:
+            return book
+    return None

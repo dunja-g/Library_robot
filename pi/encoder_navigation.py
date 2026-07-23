@@ -80,6 +80,17 @@ class GridController:
                 "navigation_mode": "grid_encoder",
                 "phase": self.phase,
                 "box_id": None if self.plan is None else self.plan["box_id"],
+                "book": None if self.plan is None else self.plan.get("book"),
+                "book_code": None
+                if self.plan is None
+                else self.plan.get("book_code"),
+                "location_code": None
+                if self.plan is None
+                else self.plan.get("location_code"),
+                "layer": None if self.plan is None else self.plan.get("layer"),
+                "position": None
+                if self.plan is None
+                else self.plan.get("position"),
                 "row": None if self.plan is None else self.plan["row"],
                 "column": None if self.plan is None else self.plan["column"],
                 "step_index": min(self.step_index + 1, len(display_steps))

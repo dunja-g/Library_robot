@@ -4,6 +4,9 @@ This mode removes route-marker dependency for a permanent two-column,
 four-row layout. It assumes a centre aisle, column A on the left, column B on
 the right, and a repeatable Dock pose facing row 1.
 
+Books use location codes such as `1A-L3-P21`; see `BOOK_NUMBERING.md`. Layer
+and position are presented after the base reaches the correct box.
+
 See `HARDWARE_PINOUT.md` for the consolidated encoder, MPU6500, ultrasonic,
 and motor-shield wiring.
 
