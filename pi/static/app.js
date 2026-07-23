@@ -152,25 +152,41 @@ function toggleLanguage() {
 function applyLanguage() {
   const copy = TRANSLATIONS[currentLanguage];
   const navLabels = document.querySelectorAll('.nav-label');
-  navLabels[0].textContent = copy.search;
-  navLabels[1].textContent = copy.myLibrary;
-  navLabels[2].textContent = copy.collections;
-  navLabels[3].textContent = copy.support;
-  document.querySelector('.popular-row > span').textContent = copy.popular;
-  document.querySelector('.location-card small b').textContent = copy.location;
-  document.getElementById('search-btn').textContent = copy.search;
-  document.getElementById('send-btn').textContent = copy.send;
-  document.querySelector('.secondary-btn').textContent = copy.add;
-  document.querySelector('.map-panel h2').textContent = copy.map;
-  document.querySelector('.task-panel h2').textContent = copy.currentTask;
-  document.querySelector('.progress-panel h2').textContent = copy.distance;
-  document.querySelector('.camera-panel h2').textContent = copy.camera;
-  document.querySelector('.robot-panel h2').textContent = copy.robotStatus;
-  document.getElementById('trending-title').textContent = copy.trending;
-  document.getElementById('language-toggle').setAttribute(
-    'aria-label',
-    currentLanguage === 'en' ? 'Switch to Chinese' : '切换到英文'
-  );
+  if (navLabels.length >= 4) {
+    navLabels[0].textContent = copy.search;
+    navLabels[1].textContent = copy.myLibrary;
+    navLabels[2].textContent = copy.collections;
+    navLabels[3].textContent = copy.support;
+  }
+  const popularLabel = document.getElementById('popular-label') || document.querySelector('.popular-row > span');
+  if (popularLabel) popularLabel.textContent = copy.popular;
+  const locHeading = document.getElementById('location-heading') || document.querySelector('.location-card small b');
+  if (locHeading) locHeading.textContent = copy.location;
+  const searchBtn = document.getElementById('search-btn');
+  if (searchBtn) searchBtn.textContent = copy.search;
+  const sendBtnLabel = document.getElementById('send-btn-label');
+  if (sendBtnLabel) sendBtnLabel.textContent = copy.send;
+  const addBtnLabel = document.getElementById('add-btn-label');
+  if (addBtnLabel) addBtnLabel.textContent = copy.add;
+  const mapHeading = document.getElementById('map-heading') || document.querySelector('.map-panel h2');
+  if (mapHeading) mapHeading.textContent = copy.map;
+  const taskHeading = document.getElementById('task-heading') || document.querySelector('.task-panel h2');
+  if (taskHeading) taskHeading.textContent = copy.currentTask;
+  const distHeading = document.getElementById('distance-heading') || document.querySelector('.progress-panel h2');
+  if (distHeading) distHeading.textContent = copy.distance;
+  const camHeading = document.getElementById('camera-heading') || document.querySelector('.camera-panel h2');
+  if (camHeading) camHeading.textContent = copy.camera;
+  const robotStatusHeading = document.getElementById('robot-status-heading') || document.querySelector('.robot-panel h2');
+  if (robotStatusHeading) robotStatusHeading.textContent = copy.robotStatus;
+  const trendingTitle = document.getElementById('trending-title');
+  if (trendingTitle) trendingTitle.textContent = copy.trending;
+  const langToggle = document.getElementById('language-toggle');
+  if (langToggle) {
+    langToggle.setAttribute(
+      'aria-label',
+      currentLanguage === 'en' ? 'Switch to Chinese' : '切换到英文'
+    );
+  }
 }
 
 async function previewSearch(showFeedback = true, queryOverride = null) {

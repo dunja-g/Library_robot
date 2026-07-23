@@ -5,32 +5,54 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Smart Library - Robot Book Finder</title>
   <meta name="description" content="Find a numbered book and send the fixed-grid library robot." />
-  <link rel="stylesheet" href="/static/style.css?v=7" />
+  <link rel="stylesheet" href="/static/style.css?v=8" />
 </head>
 <body>
   <header class="topbar">
     <a class="brand" href="/" aria-label="Smart Library home">
-      <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-      <span><strong>Smart Library</strong><small>Find Books. Let the Robot Bring You There.</small></span>
+      <svg class="nus-crest" viewBox="0 0 100 120" width="46" height="56" aria-hidden="true">
+        <!-- Shield Background -->
+        <path d="M50 4 L92 20 V64 C92 90 50 116 50 116 C50 116 8 90 8 64 V20 Z" fill="#003D7C" stroke="#002952" stroke-width="2"/>
+        <!-- Gold Crown on Top -->
+        <path d="M30 24 L38 34 L50 20 L62 34 L70 24 L66 40 H34 Z" fill="#EF7C00" stroke="#B85D00" stroke-width="1.2"/>
+        <circle cx="30" cy="22" r="2.5" fill="#FFC72C"/>
+        <circle cx="50" cy="18" r="2.5" fill="#FFC72C"/>
+        <circle cx="70" cy="22" r="2.5" fill="#FFC72C"/>
+        <!-- Open Book in Middle -->
+        <path d="M22 48 C34 44 48 48 50 51 C52 48 66 44 78 48 V72 C66 68 52 72 50 75 C48 72 34 68 22 72 Z" fill="#FFFFFF"/>
+        <path d="M50 51 V75" stroke="#003D7C" stroke-width="1.5"/>
+        <path d="M28 54 H44 M28 60 H44 M28 66 H40" stroke="#003D7C" stroke-width="1.2" stroke-linecap="round"/>
+        <path d="M56 54 H72 M56 60 H72 M60 66 H72" stroke="#003D7C" stroke-width="1.2" stroke-linecap="round"/>
+        <!-- Golden Lion Base -->
+        <path d="M36 84 C36 78 43 74 50 74 C57 74 64 78 64 84 C64 92 57 98 50 98 C43 98 36 92 36 84 Z" fill="#EF7C00"/>
+        <circle cx="45" cy="82" r="1.5" fill="#FFFFFF"/>
+        <circle cx="55" cy="82" r="1.5" fill="#FFFFFF"/>
+      </svg>
+      <div class="brand-text">
+        <strong>Smart Library</strong>
+        <small>Find Books. Let the Robot Bring You There.</small>
+      </div>
     </a>
+
     <nav class="main-nav" aria-label="Primary navigation">
       <span class="nav-item active">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
-        <b class="nav-label">Search</b>
+        <b class="nav-label" id="nav-search-label">Search</b>
       </span>
       <span class="nav-item">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5h12v17l-6-4-6 4z"/></svg>
-        <span class="nav-label">My Library</span>
+        <span class="nav-label" id="nav-mylib-label">My Library</span>
       </span>
       <span class="nav-item">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5c3-1 5.6-.4 8 1.4v13c-2.4-1.8-5-2.4-8-1.4zM20 5.5c-3-1-5.6-.4-8 1.4v13c2.4-1.8 5-2.4 8-1.4z"/></svg>
-        <span class="nav-label">Collections</span>
+        <span class="nav-label" id="nav-collections-label">Collections</span>
       </span>
       <span class="nav-item">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.8 9a2.3 2.3 0 1 1 3.1 2.2c-.9.4-.9 1.1-.9 1.8M12 17h.01"/></svg>
-        <span class="nav-label">Support</span>
+        <span class="nav-label" id="nav-support-label">Support</span>
       </span>
     </nav>
+
     <div class="top-actions">
       <button class="language" id="language-toggle" type="button" onclick="toggleLanguage()">EN&nbsp;&nbsp;|&nbsp;&nbsp;&#20013;&#25991;</button>
       <button class="header-icon" type="button" aria-label="Notifications">
@@ -55,7 +77,7 @@
       <button id="search-btn" type="button" onclick="previewSearch()">Search</button>
     </div>
     <div class="popular-row">
-      <span>Popular searches:</span>
+      <span id="popular-label">Popular searches:</span>
       <button class="suggestion active" type="button" onclick="useSuggestion('Deep Learning')">Deep Learning</button>
       <button class="suggestion" type="button" onclick="useSuggestion('Machine Learning')">Machine Learning</button>
       <button class="suggestion" type="button" onclick="useSuggestion('Computer Vision')">Computer Vision</button>
@@ -66,52 +88,85 @@
   </section>
 
   <main class="dashboard">
-    <section class="panel book-panel">
+    <!-- Left Column: Book Detail -->
+    <section class="panel book-panel card--primary">
       <div class="book-overview">
         <div class="book-cover" aria-label="Deep Learning book cover">
-          <small>SMART LIBRARY</small>
+          <small>O'REILLY</small>
           <strong id="cover-title">DEEP LEARNING</strong>
-          <span aria-hidden="true">&bull;</span>
+          <span class="cover-subtitle">A Modern Approach</span>
+          <div class="cover-art">
+            <svg viewBox="0 0 100 100" class="jellyfish-art">
+              <path d="M50 20 C25 20 20 40 20 50 C30 45 40 55 50 50 C60 55 70 45 80 50 C80 40 75 20 50 20 Z" fill="rgba(255,255,255,0.7)"/>
+              <path d="M30 52 C25 65 35 85 28 95 M40 52 C38 68 45 82 42 95 M50 52 C50 70 50 85 50 95 M60 52 C62 68 55 82 58 95 M70 52 C75 65 65 85 72 95" stroke="rgba(255,255,255,0.8)" stroke-width="2" fill="none"/>
+            </svg>
+          </div>
+          <small class="cover-author">Ian Goodfellow, Yoshua Bengio, Aaron Courville</small>
         </div>
         <div class="book-copy">
           <span class="eyebrow">Search result</span>
           <h1 id="book-title">Deep Learning</h1>
           <p id="book-subtitle" class="book-subtitle">A Modern Approach</p>
-          <p id="book-meta" class="book-author">Ian Goodfellow, Yoshua Bengio,<br />Aaron Courville</p>
-          <div class="rating"><b>&#9733;&#9733;&#9733;&#9733;&#9733;</b><span>4.8&nbsp;&nbsp;(324 reviews)</span></div>
-          <div class="book-tags"><span>AI</span><span>Neural Networks</span></div>
+          <p id="book-meta" class="book-author">Ian Goodfellow, Yoshua Bengio, Aaron Courville</p>
+          <div class="rating"><b>&#9733;&#9733;&#9733;&#9733;&#9733;</b><span>4.8 (324 reviews)</span></div>
+          <div class="book-tags"><span>AI</span><span>Machine Learning</span><span>Neural Networks</span></div>
           <p id="search-result" class="search-result">Deep Learning &middot; BK001 &middot; 1A-L3-P21</p>
         </div>
       </div>
       <p id="book-description" class="book-description">The definitive modern introduction to deep learning by the pioneers of the field.</p>
+      
       <div class="location-card">
-        <div class="location-icon" aria-hidden="true">&#9678;</div>
+        <div class="location-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+        </div>
         <div>
-          <small><b>Location in Library</b></small>
-          <strong id="book-location">Box 1A / Layer 3 / Position 21</strong>
-          <span id="location-code">Location code: 1A-L3-P21</span>
+          <small><b id="location-heading">Location in Library</b></small>
+          <strong id="book-location">Zone B / Shelf 3 / Level 3 / Slot 12</strong>
+          <span id="location-code">Robot navigation target: 3B (Row 3, Column B)</span>
         </div>
       </div>
+
       <button id="send-btn" class="primary-btn" type="button" onclick="sendRobot()">
-        Send Robot to This Book
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px;vertical-align:middle;"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4M8 16h.01M16 16h.01"/></svg>
+        <span id="send-btn-label">Send Robot to This Book</span>
       </button>
-      <button class="secondary-btn" type="button" onclick="addToList()">&#9734;&nbsp;&nbsp; Add to My List</button>
+      <button class="secondary-btn" type="button" onclick="addToList()">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px;vertical-align:middle;"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+        <span id="add-btn-label">Add to My List</span>
+      </button>
     </section>
 
+    <!-- Middle Column: Workspace (Mission Strip + Map + Task) -->
     <section class="workspace">
-      <div class="journey-strip" aria-label="Journey progress">
-        <div class="journey-step active" id="journey-search"><span>1</span><b>Search</b></div>
-        <i></i>
-        <div class="journey-step" id="journey-navigate"><span>2</span><b>Navigate</b></div>
-        <i></i>
-        <div class="journey-step" id="journey-arrive"><span>3</span><b>Arrive</b></div>
+      <!-- Mission Journey Strip (Level 4) -->
+      <div class="journey-strip mission-strip" aria-label="Journey progress">
+        <div class="journey-step done" id="journey-search">
+          <span class="step-circle">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>
+          </span>
+          <b>1 Search</b>
+        </div>
+        <i class="journey-connector"></i>
+        <div class="journey-step active" id="journey-navigate">
+          <span class="step-circle">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="4" y="9" width="16" height="11" rx="2"/><path d="M12 4v5M9 15h.01M15 15h.01"/></svg>
+          </span>
+          <b>2 Navigate</b>
+        </div>
+        <i class="journey-connector"></i>
+        <div class="journey-step" id="journey-arrive">
+          <span class="step-circle">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"/></svg>
+          </span>
+          <b>3 Arrive</b>
+        </div>
       </div>
 
       <div class="workspace-grid">
         <section class="panel map-panel">
           <div class="panel-heading">
-            <div><h2>Library Map</h2><span>4 Rows &times; 2 Columns</span></div>
-            <div class="map-legend"><b></b> Robot <b></b> Target <em></em> Route <em></em> Return</div>
+            <div><h2 id="map-heading">Library Map</h2><span>(4 Rows &times; 2 Columns)</span></div>
+            <div class="map-legend"><b></b> Robot <b></b> Target <em></em> Route <em></em> Return Route</div>
           </div>
           <div class="library-map">
             <svg class="route-layer" viewBox="0 0 340 480" preserveAspectRatio="none" aria-hidden="true">
@@ -124,46 +179,71 @@
               <div class="shelf-box" data-box="2A">2A</div><div class="shelf-box" data-box="2B">2B</div>
               <div class="shelf-box" data-box="1A">1A</div><div class="shelf-box" data-box="1B">1B</div>
             </div>
-            <div class="dock-node"><b>R</b><small>Dock</small></div>
+            <div class="dock-node">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M12 7v4M8 16h.01M16 16h.01"/></svg>
+              <small>Dock</small>
+            </div>
           </div>
         </section>
 
         <section class="panel task-panel">
-          <div class="panel-heading"><h2>Current Task</h2><span id="task-location">1A-L3-P21</span></div>
+          <div class="panel-heading"><h2 id="task-heading">Current Task</h2><span id="task-location">B3 / Level 3 / Slot 12</span></div>
           <ol class="task-list">
-            <li id="task-query"><span>1</span><div><b>Query location</b><small id="task-query-copy">1A / Layer 3 / Position 21</small></div></li>
-            <li id="task-plan"><span>2</span><div><b>Plan route</b><small id="task-plan-copy">Dock &rarr; Row 1 &rarr; Left &rarr; 1A</small></div></li>
-            <li id="task-navigate"><span>3</span><div><b>Navigate</b><small id="task-action">Waiting to start</small></div></li>
-            <li id="task-arrive"><span>4</span><div><b>Arrive</b><small id="task-arrive-copy">Stop at target location</small></div></li>
-            <li id="task-return"><span>5</span><div><b>Return to Dock</b><small id="task-return-copy">Returning to home position</small></div></li>
+            <li id="task-query" class="done">
+              <span class="task-check">✓</span>
+              <div><b>1. Query location</b><small id="task-query-copy">B3 / Level 3 / Slot 12</small></div>
+            </li>
+            <li id="task-plan" class="done">
+              <span class="task-check">✓</span>
+              <div><b>2. Plan route</b><small id="task-plan-copy">Dock &rarr; Row 3 &rarr; Right &rarr; 3B</small></div>
+            </li>
+            <li id="task-navigate" class="active">
+              <span class="task-icon">🤖</span>
+              <div><b>3. Navigate</b><small id="task-action">Moving to target...</small></div>
+            </li>
+            <li id="task-arrive">
+              <span>4</span>
+              <div><b>4. Arrive</b><small id="task-arrive-copy">Stop 3B: 5m in front of 3B</small></div>
+            </li>
+            <li id="task-return">
+              <span>5</span>
+              <div><b>5. Return to Dock</b><small id="task-return-copy">Returning to home position</small></div>
+            </li>
           </ol>
-        </section>
 
-        <section class="panel progress-panel">
-          <div><h2>Distance Progress</h2><strong id="progress-percent">0%</strong></div>
-          <div class="progress-track"><div id="progress-fill"></div></div>
-          <p><span id="progress-target">Target: 1A</span><span id="step-progress">Est. time: ~25 s</span></p>
+          <div class="progress-subcard">
+            <div class="progress-header">
+              <h3 id="distance-heading">Distance Progress</h3>
+              <strong id="progress-percent">65%</strong>
+            </div>
+            <div class="progress-track"><div id="progress-fill" style="width: 65%;"></div></div>
+            <div class="progress-footer">
+              <span id="progress-target">Target: 3B</span>
+              <span id="step-progress">Est. time: ~45 s</span>
+            </div>
+          </div>
         </section>
       </div>
     </section>
 
+    <!-- Right Column: Live Camera + Robot Status + Trending Books -->
     <aside class="right-column">
       <section class="panel camera-panel">
-        <div class="panel-heading"><h2>Live Camera</h2><span class="live-dot">&bull; LIVE</span></div>
+        <div class="panel-heading"><h2 id="camera-heading">Live Camera</h2><span class="live-dot">&bull; LIVE</span></div>
         <div class="camera-frame">
           <img id="camera-feed" src="/video_feed" alt="Live camera feed"
                onerror="this.src='/static/placeholder.svg'" />
           <span id="overlay-state-badge" class="camera-state">IDLE</span>
-          <span id="camera-target" class="camera-target">1A</span>
+          <span id="camera-target" class="camera-target">3B</span>
         </div>
       </section>
 
       <section class="panel robot-panel">
-        <div class="panel-heading"><h2>Robot Status</h2><span id="robot-state" class="state-pill">Idle</span></div>
+        <div class="panel-heading"><h2 id="robot-status-heading">Robot Status</h2><span id="robot-state" class="state-pill">Navigating</span></div>
         <div class="sensor-grid">
-          <div><span>Encoders</span><b id="encoder-health">Waiting</b><small id="encoder-detail">L &mdash; &middot; R &mdash;</small></div>
-          <div><span>MPU6500</span><b id="imu-health">Ready</b><small>Angle control</small></div>
-          <div><span>Ultrasonic</span><b id="ultrasonic-health">Waiting</b><small id="ultrasonic-detail">L &mdash; &middot; C &mdash; &middot; R &mdash;</small></div>
+          <div><span>Encoders</span><b id="encoder-health">OK</b><small id="encoder-detail">L 10000 &middot; R 10000</small></div>
+          <div><span>MPU6500</span><b id="imu-health">OK</b><small>Angle control</small></div>
+          <div><span>Ultrasonic</span><b id="ultrasonic-health">OK</b><small id="ultrasonic-detail">L 100 &middot; C 100 &middot; R 100</small></div>
         </div>
         <div class="status-message"><span id="status-icon">&bull;</span><div><b id="status-state">IDLE</b><small id="status-desc">Enter a book to begin</small></div></div>
         <div id="reason-text" class="reason-text"></div>
@@ -171,7 +251,10 @@
       </section>
 
       <section class="panel trending-panel">
-        <div class="panel-heading"><h2><span class="trend-icon">&#9832;</span><span id="trending-title">Trending Books</span></h2><span id="quick-code">1A-L3-P21</span></div>
+        <div class="panel-heading">
+          <h2><span class="trend-icon">&#128293;</span><span id="trending-title">Trending Books</span></h2>
+          <span id="quick-code">1A-L3-P21</span>
+        </div>
         <ol class="trending-list">
           <li><button type="button" onclick="useSuggestion('Deep Learning')"><b>1</b><span>Deep Learning</span><i>&rsaquo;</i></button></li>
           <li><button type="button" onclick="useSuggestion('Reinforcement Learning')"><b>2</b><span>Reinforcement Learning</span><i>&rsaquo;</i></button></li>
@@ -183,8 +266,10 @@
     </aside>
   </main>
 
-  <footer>Smart Library Robot <span>|</span> Powered by Raspberry Pi 5 + Arduino Mega</footer>
+  <footer>
+    NUS Smart Library Robot <span class="divider">|</span> Powered by Raspberry Pi 5 + Arduino Mega
+  </footer>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/static/app.js?v=7"></script>
+  <script src="/static/app.js?v=8"></script>
 </body>
 </html>
