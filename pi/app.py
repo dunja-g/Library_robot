@@ -7,6 +7,9 @@ import threading
 import time
 
 from flask import Flask, Response, jsonify, render_template, request
+from dotenv import load_dotenv
+
+load_dotenv()
 
 try:
     from .book_db import (
