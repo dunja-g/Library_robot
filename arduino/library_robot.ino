@@ -252,12 +252,24 @@ void handleCommand(const char *command) {
   } else if (strcmp(command, "ROTATE_RIGHT") == 0) {
     cancelImuTurn();
     rotateRight();
-  } else if (strcmp(command, "TURN_LEFT") == 0) {
-    startImuTurn(-90.0);
-  } else if (strcmp(command, "TURN_RIGHT") == 0) {
-    startImuTurn(90.0);
-  } else if (strcmp(command, "TURN_UTURN") == 0) {
-    startImuTurn(-180.0);
+  } else if (strncmp(command, "TURN_LEFT", 9) == 0) {
+    float target = -90.0;
+    if (command[9] == ':') {
+      target = -abs(atof(command + 10));
+    }
+    startImuTurn(target);
+  } else if (strncmp(command, "TURN_RIGHT", 10) == 0) {
+    float target = 90.0;
+    if (command[10] == ':') {
+      target = abs(atof(command + 11));
+    }
+    startImuTurn(target);
+  } else if (strncmp(command, "TURN_UTURN", 10) == 0) {
+    float target = -180.0;
+    if (command[10] == ':') {
+      target = -abs(atof(command + 11));
+    }
+    startImuTurn(target);
   } else if (strcmp(command, "TURN_STATUS") == 0) {
     reportImuTurnStatus();
   } else if (strcmp(command, "STOP") == 0) {

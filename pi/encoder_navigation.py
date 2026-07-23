@@ -55,6 +55,7 @@ class GridController:
         self._last_progress_ticks = 0.0
         self._last_progress_at: float | None = None
         self._step_deadline: float | None = None  # timed mode: drive until this time
+        self.turn_degrees: float | None = None
         self._latest_encoders: dict | None = None
         self._latest_ultrasonic: dict | None = None
         self._latest_turn_status: str | None = None
@@ -65,6 +66,7 @@ class GridController:
         with self._lock:
             self.serial.send_stop()
             self.plan = deepcopy(plan)
+            self.turn_degrees = plan.get("turn_degrees")
             self.phase = "OUTBOUND"
             self.step_index = 0
             self.stop_reason = None
@@ -163,6 +165,7 @@ class GridController:
             self.state = GridState.IDLE
             self.stop_reason = None
             self.plan = None
+            self.turn_degrees = None
             self.phase = None
             self.step_index = 0
             self._dwell_deadline = None
@@ -270,12 +273,13 @@ class GridController:
         self._send_action(step["action"])
 
     def _send_imu_turn(self, action: str) -> None:
+        deg = self.turn_degrees
         if action == "TURN_LEFT":
-            sent = self.serial.send_turn_left()
+            sent = self.serial.send_turn_left(deg)
         elif action == "TURN_RIGHT":
-            sent = self.serial.send_turn_right()
+            sent = self.serial.send_turn_right(deg)
         else:
-            sent = self.serial.send_turn_uturn()
+            sent = self.serial.send_turn_uturn(deg)
         if not sent:
             self._safe_stop("imu_turn_command_failed")
 

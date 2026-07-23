@@ -39,6 +39,7 @@ class GridGeometry:
     row_spacing_cm: float | None = None
     box_approach_distance_cm: float | None = None
     forward_speed_cms: float | None = None  # cm/s for timed driving (no encoder)
+    turn_degrees: float | None = None
 
     def __post_init__(self):
         for name, value in (
@@ -46,6 +47,7 @@ class GridGeometry:
             ("row_spacing_cm", self.row_spacing_cm),
             ("box_approach_distance_cm", self.box_approach_distance_cm),
             ("forward_speed_cms", self.forward_speed_cms),
+            ("turn_degrees", self.turn_degrees),
         ):
             if value is not None and value <= 0:
                 raise ValueError(f"{name} must be positive")
@@ -276,6 +278,7 @@ def build_grid_route(
         "box_id": box_id,
         "row": row,
         "column": side,
+        "turn_degrees": geometry.turn_degrees,
         "outbound": outbound,
         "return": return_route,
     }

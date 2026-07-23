@@ -78,17 +78,17 @@ class SerialBridge:
     def send_rotate_right(self) -> bool:
         return self._send("ROTATE_RIGHT")
 
-    def send_turn_left(self) -> bool:
-        """Request a self-terminating 90-degree IMU turn."""
-        return self._send("TURN_LEFT")
+    def send_turn_left(self, degrees: float | None = None) -> bool:
+        """Request a self-terminating IMU turn (defaults to 90 degrees)."""
+        return self._send("TURN_LEFT" if degrees is None else f"TURN_LEFT:{degrees:.1f}")
 
-    def send_turn_right(self) -> bool:
-        """Request a self-terminating 90-degree IMU turn."""
-        return self._send("TURN_RIGHT")
+    def send_turn_right(self, degrees: float | None = None) -> bool:
+        """Request a self-terminating IMU turn (defaults to 90 degrees)."""
+        return self._send("TURN_RIGHT" if degrees is None else f"TURN_RIGHT:{degrees:.1f}")
 
-    def send_turn_uturn(self) -> bool:
-        """Request a self-terminating 180-degree IMU turn."""
-        return self._send("TURN_UTURN")
+    def send_turn_uturn(self, degrees: float | None = None) -> bool:
+        """Request a self-terminating IMU turn (defaults to 180 degrees)."""
+        return self._send("TURN_UTURN" if degrees is None else f"TURN_UTURN:{degrees:.1f}")
 
     @staticmethod
     def parse_turn_status(line: str) -> str | None:
