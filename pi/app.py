@@ -169,6 +169,15 @@ else:
     serial_bridge = SerialBridge(
         port=os.getenv("LIBRARY_ROBOT_SERIAL_PORT", "/dev/ttyACM0")
     )
+    
+    # Configure motor drift compensation if provided
+    trim = os.getenv("LIBRARY_ROBOT_LEFT_SPEED_REDUCTION")
+    if trim is not None:
+        try:
+            serial_bridge.set_trim(int(trim))
+        except ValueError:
+            logger.error("LIBRARY_ROBOT_LEFT_SPEED_REDUCTION must be an integer")
+            
     camera = Camera(
         width=config.camera_width,
         height=config.camera_height,

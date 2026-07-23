@@ -13,7 +13,7 @@ AF_DCMotor motorRightRear(3);
 
 const uint8_t FORWARD_SPEED = 180;
 const uint8_t ROTATE_SPEED = 120;
-const uint8_t LEFT_SPEED_REDUCTION = 15;
+int leftSpeedReduction = 15;
 const unsigned long COMMAND_TIMEOUT_MS = 2000;
 const unsigned long IMU_TURN_TIMEOUT_MS = 5000;
 
@@ -82,10 +82,9 @@ void cancelImuTurn() {
 }
 
 void moveStraight(uint8_t direction) {
-  // Person 1 measured the left drivetrain as faster. Apply the same
-  // mechanical compensation in both travel directions.
-  uint8_t leftSpeed = max(0, FORWARD_SPEED - LEFT_SPEED_REDUCTION);
-  uint8_t rightSpeed = min(255, FORWARD_SPEED + LEFT_SPEED_REDUCTION);
+  // Mechanical compensation for drift:
+  int leftSpeed = constrain(FORWARD_SPEED - leftSpeedReduction, 0, 255);
+  int rightSpeed = constrain(FORWARD_SPEED + leftSpeedReduction, 0, 255);
   setLeft(direction, leftSpeed);
   setRight(direction, rightSpeed);
   motorsActive = true;
@@ -281,6 +280,8 @@ void handleCommand(const char *command) {
     reportEncoders();
   } else if (strcmp(command, "ENC_RESET") == 0) {
     resetEncoders();
+  } else if (strncmp(command, "SET_TRIM:", 9) == 0) {
+    leftSpeedReduction = atoi(command + 9);
   } else if (command[0] != '\0') {
     recognised = false;
     Serial.println("ERR:UNKNOWN_COMMAND");

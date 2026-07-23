@@ -90,6 +90,10 @@ class SerialBridge:
         """Request a self-terminating IMU turn (defaults to 180 degrees)."""
         return self._send("TURN_UTURN" if degrees is None else f"TURN_UTURN:{degrees:.1f}")
 
+    def set_trim(self, left_speed_reduction: int) -> bool:
+        """Dynamically configure Arduino motor compensation for drift."""
+        return self._send(f"SET_TRIM:{left_speed_reduction}")
+
     @staticmethod
     def parse_turn_status(line: str) -> str | None:
         if not line.startswith("TURN:"):
