@@ -39,7 +39,8 @@ class GridGeometry:
     row_spacing_cm: float | None = None
     box_approach_distance_cm: float | None = None
     forward_speed_cms: float | None = None  # cm/s for timed driving (no encoder)
-    turn_degrees: float | None = None
+    outbound_turn_degrees: float | None = None
+    return_turn_degrees: float | None = None
 
     def __post_init__(self):
         for name, value in (
@@ -47,7 +48,8 @@ class GridGeometry:
             ("row_spacing_cm", self.row_spacing_cm),
             ("box_approach_distance_cm", self.box_approach_distance_cm),
             ("forward_speed_cms", self.forward_speed_cms),
-            ("turn_degrees", self.turn_degrees),
+            ("outbound_turn_degrees", self.outbound_turn_degrees),
+            ("return_turn_degrees", self.return_turn_degrees),
         ):
             if value is not None and value <= 0:
                 raise ValueError(f"{name} must be positive")
@@ -228,11 +230,14 @@ def build_grid_route(
             _timed_step(outward_turn, f"Face box {box_id}", None, speed),
             _timed_step("FORWARD", f"Approach box {box_id}", approach_cm, speed),
         ]
+        outbound[1]["target_degrees"] = geometry.outbound_turn_degrees
+
         return_route = [
             _timed_step("BACKWARD", "Back out to centre aisle", approach_cm, speed),
             _timed_step(reverse_turn, "Face original direction", None, speed),
             _timed_step("BACKWARD", "Reverse to Dock", aisle_cm, speed),
         ]
+        return_route[1]["target_degrees"] = geometry.return_turn_degrees
     else:
         aisle_ticks = calibration.distance_ticks(geometry.distance_to_row(row))
         approach_ticks = calibration.distance_ticks(
@@ -278,7 +283,6 @@ def build_grid_route(
         "box_id": box_id,
         "row": row,
         "column": side,
-        "turn_degrees": geometry.turn_degrees,
         "outbound": outbound,
         "return": return_route,
     }
