@@ -214,6 +214,8 @@ def build_grid_route(
     side = box_id[1]
     outward_turn = "TURN_LEFT" if side == "A" else "TURN_RIGHT"
     return_turn = "TURN_RIGHT" if side == "A" else "TURN_LEFT"
+    # To face the original direction, we do the opposite of the outward turn
+    reverse_turn = "TURN_RIGHT" if side == "A" else "TURN_LEFT"
 
     if timed_mode:
         speed = float(geometry.forward_speed_cms)
@@ -225,10 +227,9 @@ def build_grid_route(
             _timed_step("FORWARD", f"Approach box {box_id}", approach_cm, speed),
         ]
         return_route = [
-            _timed_step("UTURN", "Turn away from box", None, speed),
-            _timed_step("FORWARD", "Return to centre aisle", approach_cm, speed),
-            _timed_step(return_turn, "Face Dock", None, speed),
-            _timed_step("FORWARD", "Return to Dock", aisle_cm, speed),
+            _timed_step("BACKWARD", "Back out to centre aisle", approach_cm, speed),
+            _timed_step(reverse_turn, "Face original direction", None, speed),
+            _timed_step("BACKWARD", "Reverse to Dock", aisle_cm, speed),
         ]
     else:
         aisle_ticks = calibration.distance_ticks(geometry.distance_to_row(row))
@@ -252,24 +253,23 @@ def build_grid_route(
         ]
         return_route = [
             {
-                "action": "UTURN",
-                "target_ticks": int(calibration.turn_180_ticks or 0),
-                "target_seconds": 0.0,
-                "label": "Turn away from box",
-            },
-            {
-                "action": "FORWARD",
+                "action": "BACKWARD",
                 "target_ticks": approach_ticks,
                 "target_seconds": 0.0,
-                "label": "Return to centre aisle",
+                "label": "Back out to centre aisle",
             },
             {
-                "action": return_turn,
+                "action": reverse_turn,
                 "target_ticks": int(calibration.turn_90_ticks or 0),
                 "target_seconds": 0.0,
-                "label": "Face Dock",
+                "label": "Face original direction",
             },
-            {"action": "FORWARD", "target_ticks": aisle_ticks, "target_seconds": 0.0, "label": "Return to Dock"},
+            {
+                "action": "BACKWARD",
+                "target_ticks": aisle_ticks,
+                "target_seconds": 0.0,
+                "label": "Reverse to Dock",
+            },
         ]
 
     return {

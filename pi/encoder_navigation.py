@@ -193,9 +193,9 @@ class GridController:
                 if self.state == GridState.TURNING and self.turn_source == "imu":
                     self._step_imu_turn()
                     return
-                # --- Timed forward mode (no encoder wires required) ---
-                if step.get("target_seconds", 0.0) > 0.0 and step["action"] == "FORWARD":
-                    self._step_timed_forward()
+                # --- Timed forward/backward mode (no encoder wires required) ---
+                if step.get("target_seconds", 0.0) > 0.0 and step["action"] in {"FORWARD", "BACKWARD"}:
+                    self._step_timed_linear()
                     return
                 # --- Encoder mode ---
                 encoders = self.serial.get_encoders()
@@ -248,8 +248,8 @@ class GridController:
             self._latest_turn_status = "ACTIVE"
             self._send_imu_turn(step["action"])
             return
-        # Timed forward step
-        if step.get("target_seconds", 0.0) > 0.0 and step["action"] == "FORWARD":
+        # Timed linear step
+        if step.get("target_seconds", 0.0) > 0.0 and step["action"] in {"FORWARD", "BACKWARD"}:
             self._step_deadline = self._clock() + step["target_seconds"]
             self.state = GridState.MOVING
             self._send_action(step["action"])
@@ -318,13 +318,14 @@ class GridController:
         self._step_deadline = None
         self._start_current_step()
 
-    def _step_timed_forward(self) -> None:
-        """Advance a FORWARD step using a time deadline instead of encoder ticks."""
+    def _step_timed_linear(self) -> None:
+        """Advance a FORWARD or BACKWARD step using a time deadline instead of encoder ticks."""
         if self._step_deadline is None:
             # Shouldn't happen, but recover gracefully.
             self._safe_stop("timed_step_no_deadline")
             return
-        self._send_action("FORWARD")
+        step = self._current_step()
+        self._send_action(step["action"])
         if self._clock() >= self._step_deadline:
             self.serial.send_stop()
             self._step_deadline = None
@@ -347,6 +348,8 @@ class GridController:
     def _send_action(self, action: str) -> None:
         if action == "FORWARD":
             self.serial.send_forward()
+        elif action == "BACKWARD":
+            self.serial.send_backward()
         elif action in {"TURN_LEFT", "UTURN"}:
             self.serial.send_rotate_left()
         elif action == "TURN_RIGHT":
@@ -360,6 +363,12 @@ class GridController:
             self._safe_stop("ultrasonic_unavailable")
             return False
         self._latest_ultrasonic = dict(readings)
+
+        # Reversing blindly is safe because we retrace a known clear path
+        step = self._current_step()
+        if step is not None and step.get("action") == "BACKWARD":
+            return True
+
         for direction in ("left", "center", "right"):
             if float(readings[direction]) < self.obstacle_distance_cm:
                 self._safe_stop(f"{direction}_obstacle")
