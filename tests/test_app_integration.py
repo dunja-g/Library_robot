@@ -14,7 +14,7 @@ def test_app_is_fixed_grid_only_and_lists_numbered_books(monkeypatch):
     mode = client.get("/navigation_mode").get_json()
     assert mode["mode"] == "grid"
     assert mode["marker_scanning"] is False
-    assert client.get("/books").get_json() == ["Deep Learning"]
+    assert "Deep Learning" in client.get("/books").get_json()
     assert client.post("/request_box", json={"box_id": "1A"}).status_code == 404
 
 
@@ -56,9 +56,9 @@ def test_book_number_dispatches_without_marker_scan(monkeypatch):
 
 def test_partial_unique_book_query_can_start_and_reset(monkeypatch):
     _module, client = load_mock_app(monkeypatch)
-    response = client.post("/request_book", json={"query": "learning"})
+    response = client.post("/request_book", json={"query": "CSAPP"})
     assert response.status_code == 200
-    assert response.get_json()["title"] == "Deep Learning"
+    assert response.get_json()["title"] == "Computer Systems: CSAPP"
     assert client.post("/reset").status_code == 200
     assert client.get("/status").get_json()["state"] == "IDLE"
 

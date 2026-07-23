@@ -270,22 +270,22 @@ def request_book():
     plan.update(
         book=book["title"],
         book_code=book["book_id"],
-        location_code=book["location_code"],
-        layer=book["layer"],
-        position=book["position"],
+        location_code=book.get("location_code", ""),
+        layer=book.get("layer"),
+        position=book.get("position"),
     )
     controller.request_grid_mission(plan)
-    logger.info("Book requested: %s -> %s", book["title"], book["location_code"])
+    logger.info("Book requested: %s -> %s", book["title"], book.get("location_code", ""))
     return jsonify(
         {
             "status": "ok",
             "title": book["title"],
             "book_code": book["book_id"],
-            "location_code": book["location_code"],
+            "location_code": book.get("location_code", ""),
             "destination": {
                 "box_id": book["box_id"],
-                "layer": book["layer"],
-                "position": book["position"],
+                "layer": book.get("layer"),
+                "position": book.get("position"),
             },
             "outbound": plan["outbound"],
             "return": plan["return"],

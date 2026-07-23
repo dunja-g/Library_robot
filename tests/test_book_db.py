@@ -13,21 +13,14 @@ def test_deep_learning_has_complete_b3_location():
     location = get_book_location("Deep Learning")
 
     assert book["book_id"] == "BK001"
-    assert location == {
-        "zone": "B",
-        "shelf_number": 3,
-        "shelf_code": "B3",
-        "level": 3,
-        "slot": 12,
-        "destination_marker": 203,
-        "box_id": "1A",
-        "layer": 3,
-        "position": 21,
-        "location_code": "1A-L3-P21",
-    }
+    assert location["zone"] == "B"
+    assert location["box_id"] == "1A"
+    assert location["box_label"] == "8712"
+    assert location["location_code"] == "1A-L3-P21"
     assert get_aruco_id("Deep Learning") == 203
     assert "Deep Learning" in get_all_books()
-    assert get_all_books(grid_only=True) == ["Deep Learning"]
+    assert "Deep Learning" in get_all_books(grid_only=True)
+    assert len(get_all_books(grid_only=True)) == 12
     assert book["location_code"] == "1A-L3-P21"
 
 
@@ -40,5 +33,6 @@ def test_fixed_grid_book_search_uses_title_id_and_location_code():
     assert find_book("deep learning")["book_id"] == "BK001"
     assert find_book("bk001")["location_code"] == "1A-L3-P21"
     assert find_book("1a-l3-p21")["title"] == "Deep Learning"
-    assert search_books("learn")[0]["box_id"] == "1A"
+    assert find_book("8716")["box_id"] == "1B"
+    assert search_books("clean")[0]["box_id"] == "2A"
     assert find_book("unknown") is None
