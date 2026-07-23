@@ -16,9 +16,12 @@ def test_firmware_contains_full_serial_protocol():
         "ROTATE_RIGHT",
         "STOP",
         "CHECK",
+        "ENCODER",
+        "ENC_RESET",
     ):
         assert f'"{command}"' in FIRMWARE
     assert 'Serial.print("US:")' in FIRMWARE
+    assert 'Serial.print("ENC:")' in FIRMWARE
     assert "Serial.begin(115200)" in FIRMWARE
 
 
@@ -38,3 +41,10 @@ def test_firmware_has_nonblocking_commands_and_watchdog():
     assert "readStringUntil" not in FIRMWARE
     assert "COMMAND_TIMEOUT_MS = 2000" in FIRMWARE
     assert "motorsActive && millis() - lastCommandMs" in FIRMWARE
+
+
+def test_firmware_uses_interrupt_encoder_inputs():
+    assert "ENCODER_LEFT_PIN = 18" in FIRMWARE
+    assert "ENCODER_RIGHT_PIN = 19" in FIRMWARE
+    assert "attachInterrupt" in FIRMWARE
+    assert "volatile long encoderLeftTicks" in FIRMWARE

@@ -23,11 +23,26 @@ const uint8_t ECHO_CENTER = 22;
 const uint8_t TRIG_RIGHT = 27;
 const uint8_t ECHO_RIGHT = 26;
 
+// One encoder pulse input per drivetrain side. Mega pins 18 and 19 support
+// hardware interrupts. Change these two constants to match the final wiring.
+const uint8_t ENCODER_LEFT_PIN = 18;
+const uint8_t ENCODER_RIGHT_PIN = 19;
+volatile long encoderLeftTicks = 0;
+volatile long encoderRightTicks = 0;
+
 const uint8_t COMMAND_BUFFER_SIZE = 32;
 char commandBuffer[COMMAND_BUFFER_SIZE];
 uint8_t commandLength = 0;
 unsigned long lastCommandMs = 0;
 bool motorsActive = false;
+
+void onLeftEncoderPulse() {
+  encoderLeftTicks++;
+}
+
+void onRightEncoderPulse() {
+  encoderRightTicks++;
+}
 
 void setLeft(uint8_t direction, uint8_t speedValue) {
   motorLeftFront.setSpeed(speedValue);
@@ -100,6 +115,25 @@ void reportUltrasonic() {
   Serial.println(right, 1);
 }
 
+void resetEncoders() {
+  noInterrupts();
+  encoderLeftTicks = 0;
+  encoderRightTicks = 0;
+  interrupts();
+  Serial.println("ENC_RESET:OK");
+}
+
+void reportEncoders() {
+  noInterrupts();
+  long leftSnapshot = encoderLeftTicks;
+  long rightSnapshot = encoderRightTicks;
+  interrupts();
+  Serial.print("ENC:");
+  Serial.print(leftSnapshot);
+  Serial.print(",");
+  Serial.println(rightSnapshot);
+}
+
 void handleCommand(const char *command) {
   bool recognised = true;
 
@@ -115,6 +149,10 @@ void handleCommand(const char *command) {
     stopAll();
   } else if (strcmp(command, "CHECK") == 0) {
     reportUltrasonic();
+  } else if (strcmp(command, "ENCODER") == 0) {
+    reportEncoders();
+  } else if (strcmp(command, "ENC_RESET") == 0) {
+    resetEncoders();
   } else if (command[0] != '\0') {
     recognised = false;
     Serial.println("ERR:UNKNOWN_COMMAND");
@@ -154,6 +192,10 @@ void setup() {
   pinMode(ECHO_CENTER, INPUT);
   pinMode(TRIG_RIGHT, OUTPUT);
   pinMode(ECHO_RIGHT, INPUT);
+  pinMode(ENCODER_LEFT_PIN, INPUT_PULLUP);
+  pinMode(ENCODER_RIGHT_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_PIN), onLeftEncoderPulse, RISING);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_PIN), onRightEncoderPulse, RISING);
   stopAll();
   lastCommandMs = millis();
   Serial.println("READY");

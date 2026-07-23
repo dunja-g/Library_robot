@@ -99,6 +99,19 @@ def test_ultrasonic_parser_rejects_invalid_or_unsafe_values(line):
     assert SerialBridge.parse_ultrasonic(line) is None
 
 
+def test_encoder_reset_and_read_protocol():
+    fake = FakeSerialPort([b"ENC_RESET:OK\r\n", b"ENC:120,118\r\n"])
+    bridge = make_bridge(fake)
+    assert bridge.reset_encoders() is True
+    assert bridge.get_encoders() == {"left": 120, "right": 118}
+    assert fake.writes == [b"ENC_RESET\n", b"ENCODER\n"]
+
+
+@pytest.mark.parametrize("line", ["", "ENC:1", "ENC:1,two", "ENC:1,2,3"])
+def test_encoder_parser_rejects_invalid_data(line):
+    assert SerialBridge.parse_encoders(line) is None
+
+
 def test_write_failure_is_reported_without_crashing_controller():
     bridge = make_bridge(FakeSerialPort(fail_writes=True))
     assert bridge.send_forward() is False

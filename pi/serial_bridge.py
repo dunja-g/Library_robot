@@ -81,6 +81,10 @@ class SerialBridge:
     def send_stop(self) -> bool:
         return self._send("STOP")
 
+    def reset_encoders(self) -> bool:
+        """Reset both Mega encoder counters before a motion segment."""
+        return self._send("ENC_RESET")
+
     @staticmethod
     def parse_ultrasonic(line: str) -> dict[str, float] | None:
         """Parse ``US:left,center,right`` and reject unsafe values."""
@@ -117,6 +121,42 @@ class SerialBridge:
                 if line:
                     logger.debug("Ignoring Arduino status line: %s", line)
         logger.warning("No valid ultrasonic response received")
+        return None
+
+    @staticmethod
+    def parse_encoders(line: str) -> dict[str, int] | None:
+        """Parse ``ENC:left,right`` tick counters."""
+        if not line.startswith("ENC:"):
+            return None
+        parts = line[4:].split(",")
+        if len(parts) != 2:
+            return None
+        try:
+            values = [int(part) for part in parts]
+        except ValueError:
+            return None
+        return dict(zip(("left", "right"), values))
+
+    def get_encoders(self, response_lines: int = 3) -> dict[str, int] | None:
+        """Request an atomic snapshot of left and right encoder ticks."""
+        if response_lines <= 0:
+            raise ValueError("response_lines must be positive")
+        with self._lock:
+            if not self._write_locked("ENCODER"):
+                return None
+            for _ in range(response_lines):
+                try:
+                    raw = self.ser.readline()
+                except (serial.SerialException, OSError) as exc:
+                    logger.error("Failed to read encoder response: %s", exc)
+                    return None
+                line = raw.decode("ascii", errors="ignore").strip()
+                readings = self.parse_encoders(line)
+                if readings is not None:
+                    return readings
+                if line:
+                    logger.debug("Ignoring Arduino status line: %s", line)
+        logger.warning("No valid encoder response received")
         return None
 
     def close(self) -> None:

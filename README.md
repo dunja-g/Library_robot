@@ -1,123 +1,71 @@
-# 📚 Library Robot — Version 1
+# Library Robot — Multi-Waypoint MVP
 
-A Raspberry Pi + Arduino robot that navigates to a book when a user selects it from a web interface. Books are identified using **ArUco markers** detected by the Pi Camera.
+A Raspberry Pi and Arduino Mega robot that guides a user to a selected book by following a configured sequence of OpenCV ArUco markers. Navigation is a deterministic Python state machine with ultrasonic fail-safe stopping.
 
----
+The project now also includes an optional marker-free `grid` mode for a fixed
+1A-4B layout. It generates routes from measured dimensions and executes them
+with left/right wheel encoders. See
+[docs/FIXED_GRID_ENCODER.md](docs/FIXED_GRID_ENCODER.md).
 
-## How It Works
+## Current demonstration
 
-1. Robot sits at a **fixed docking position**
-2. User opens the **web UI** on any device on the same WiFi
-3. User selects a book from a **dropdown menu**
-4. Robot **rotates** to scan for the correct ArUco marker
-5. Once found, it **aligns** and drives **straight toward it**, stopping ~25cm away
-6. The web page shows a **live camera feed** and status updates
+The catalogue contains **Deep Learning** at zone B, shelf B3, level 3, slot 12.
 
----
+- Outbound: `101 → 105 → 203`
+- Destination: marker `203` at shelf B3
+- Return: `105 → 101 → 0`
+- Dock: marker `0`
 
-## Hardware
+At each waypoint the robot scans only for the expected marker, aligns, approaches it, validates the marker and ultrasonic distance together, then executes the configured timed turn. After reaching the shelf it waits briefly and returns automatically.
 
-| Component | Details |
-|---|---|
-| On-board Computer | Raspberry Pi (any model with camera port) |
-| Microcontroller | Arduino Mega |
-| Motor Shield | MH Electronics (AFMotor library) |
-| Camera | Pi Camera Module |
-| Distance Sensors | 3× HC-SR04 Ultrasonic |
-| Drive | 4× DC Motors (differential drive) |
+## Software flow
 
----
+`IDLE → SCANNING → ALIGNING → APPROACHING → TURNING → … → ARRIVED → RETURNING → DOCKED`
 
-## Project Structure
+Any invalid ultrasonic reading, obstacle, timeout, or controller exception sends a motor stop and enters `STOPPED`. `/reset` stops the motors and clears the mission; it does not physically drive the robot back to Dock.
 
-```
-Library_robot/
-├── arduino/
-│   └── library_robot.ino         ← Arduino firmware
-│
-├── pi/
-│   ├── app.py                    ← Flask web server
-│   ├── book_db.py                ← Book → ArUco ID mapping
-│   ├── camera.py                 ← Pi Camera & MJPEG stream
-│   ├── aruco_detector.py         ← OpenCV ArUco detection
-│   ├── robot_controller.py       ← Navigation state machine
-│   ├── serial_bridge.py          ← Serial comms to Arduino
-│   ├── templates/
-│   │   └── index.html            ← Web UI
-│   └── static/
-│       ├── style.css
-│       └── app.js
-│
-├── aruco_codes/
-│   └── generate_markers.py       ← Generates printable ArUco PNGs
-│
-├── docs/
-│   ├── PLAN.md                   ← Full architecture & design plan
-│   ├── person1_hardware.md       ← Guide for Person 1 (Hardware)
-│   ├── person2_vision.md         ← Guide for Person 2 (Vision)
-│   └── person3_webapp.md         ← Guide for Person 3 (Web App)
-│
-├── requirements.txt
-└── README.md
+## Project structure
+
+```text
+arduino/library_robot.ino       Arduino motor and HC-SR04 firmware
+pi/app.py                      Flask API, UI server, and Mock mode
+pi/book_db.py                  Book and physical shelf metadata
+pi/route_db.py                 Marker catalogue and route/turn configuration
+pi/mission.py                  Outbound/return mission progress
+pi/grid_layout.py              Parameterised 1A-4B geometry and route generator
+pi/encoder_navigation.py       Encoder motion state machine
+pi/robot_controller.py         Non-blocking navigation state machine
+pi/aruco_detector.py           OpenCV ArUco detection
+pi/camera.py                   Picamera2 capture and MJPEG stream
+pi/serial_bridge.py            Raspberry Pi ↔ Arduino serial protocol
+pi/navigation_config.py        Environment-based tuning
+tests/                         Hardware-free unit and integration tests
+docs/MULTI_WAYPOINT_MVP.md     Placement, tuning, safety, and runbook
 ```
 
----
-
-## Team
-
-| Person | Responsibility |
-|---|---|
-| **Person 1** | Arduino firmware + Python serial bridge |
-| **Person 2** | ArUco detection + Camera + Navigation state machine |
-| **Person 3** | Flask web server + Web UI |
-
-See the `docs/` folder for detailed step-by-step guides for each role.
-
-Related implementation reference: [cc-hackers-s-RL-robotics-project](https://github.com/12412825-collab/cc-hackers-s-RL-robotics-project). See `docs/PROJECT_CONTEXT.md` for the agreed reuse boundary.
-
----
-
-## Setup (Run on Raspberry Pi)
+## Run without hardware
 
 ```bash
-# 1. Clone the repo
-git clone https://github.com/dunja-g/Library_robot.git
-cd Library_robot
-
-# 2. Install Python dependencies
 pip install -r requirements.txt
-
-# 3. Flash arduino/library_robot.ino to the Arduino via Arduino IDE
-
-# 4. Run the robot
-cd pi
-python app.py
+pip install -r requirements-dev.txt
+set LIBRARY_ROBOT_USE_MOCK=true
+python -m pi.app
 ```
 
-Then open `http://<your-pi-ip-address>:5000` in any browser on the same WiFi network.
+On PowerShell, use `$env:LIBRARY_ROBOT_USE_MOCK="true"`. Open `http://localhost:5000`, select **Deep Learning**, and watch the complete outbound and return simulation.
 
-### Person 2 Offline Validation
+## Run on Raspberry Pi
 
-The vision and navigation modules can be tested without Raspberry Pi hardware:
+1. Flash `arduino/library_robot.ino` to the Mega.
+2. Wire and test all three HC-SR04 sensors and the differential drive.
+3. Install dependencies and enable the Pi camera.
+4. Copy `.env.example` values into the service environment and set `LIBRARY_ROBOT_USE_MOCK=false`.
+5. From the repository root, run `python -m pi.app` and open `http://<pi-ip>:5000`.
+
+Run offline verification with:
 
 ```bash
-pip install opencv-contrib-python numpy pytest
 python -m pytest -q
-python -m aruco_codes.generate_markers
 ```
 
-`Camera` accepts an injected backend, so an existing Raspberry Pi camera or baseline-model capture pipeline can be reused as long as it returns BGR NumPy frames.
-
----
-
-## Dependencies
-
-```
-flask
-opencv-contrib-python
-picamera2
-pyserial
-numpy
-```
-
-> **Note:** `opencv-contrib-python` is required (NOT `opencv-python`) — the ArUco module only ships in the contrib version.
+See [docs/MULTI_WAYPOINT_MVP.md](docs/MULTI_WAYPOINT_MVP.md) before the first powered route trial.

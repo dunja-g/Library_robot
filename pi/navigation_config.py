@@ -16,6 +16,18 @@ def _env_number(name: str, default, cast):
         raise ValueError(f"{name} must be a valid {cast.__name__}") from exc
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    normalized = raw.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a valid boolean")
+
+
 @dataclass(frozen=True)
 class NavigationConfig:
     camera_width: int = 640
@@ -23,13 +35,17 @@ class NavigationConfig:
     camera_fps: int = 20
     control_hz: float = 10.0
     align_tolerance_px: int = 30
-    stop_distance_cm: float = 25.0
+    stop_distance_cm: float = 35.0
     obstacle_distance_cm: float = 20.0
     scan_timeout_seconds: float = 60.0
     target_confirmation_frames: int = 2
     alignment_confirmation_frames: int = 2
     target_loss_tolerance_frames: int = 3
     min_marker_area_px: float = 0.0
+    turn_90_seconds: float = 0.8
+    uturn_seconds: float = 1.6
+    destination_dwell_seconds: float = 5.0
+    auto_return: bool = True
 
     def __post_init__(self):
         positive = {
@@ -42,6 +58,8 @@ class NavigationConfig:
             "scan_timeout_seconds": self.scan_timeout_seconds,
             "target_confirmation_frames": self.target_confirmation_frames,
             "alignment_confirmation_frames": self.alignment_confirmation_frames,
+            "turn_90_seconds": self.turn_90_seconds,
+            "uturn_seconds": self.uturn_seconds,
         }
         invalid = [name for name, value in positive.items() if value <= 0]
         if invalid:
@@ -52,6 +70,8 @@ class NavigationConfig:
             raise ValueError("target_loss_tolerance_frames must be non-negative")
         if self.min_marker_area_px < 0:
             raise ValueError("min_marker_area_px must be non-negative")
+        if self.destination_dwell_seconds < 0:
+            raise ValueError("destination_dwell_seconds must be non-negative")
 
     @classmethod
     def from_env(cls) -> "NavigationConfig":
@@ -65,7 +85,7 @@ class NavigationConfig:
                 "LIBRARY_ROBOT_ALIGN_TOLERANCE_PX", 30, int
             ),
             stop_distance_cm=_env_number(
-                "LIBRARY_ROBOT_STOP_DISTANCE_CM", 25.0, float
+                "LIBRARY_ROBOT_STOP_DISTANCE_CM", 35.0, float
             ),
             obstacle_distance_cm=_env_number(
                 "LIBRARY_ROBOT_OBSTACLE_DISTANCE_CM", 20.0, float
@@ -85,4 +105,14 @@ class NavigationConfig:
             min_marker_area_px=_env_number(
                 "LIBRARY_ROBOT_MIN_MARKER_AREA_PX", 0.0, float
             ),
+            turn_90_seconds=_env_number(
+                "LIBRARY_ROBOT_TURN_90_SECONDS", 0.8, float
+            ),
+            uturn_seconds=_env_number(
+                "LIBRARY_ROBOT_UTURN_SECONDS", 1.6, float
+            ),
+            destination_dwell_seconds=_env_number(
+                "LIBRARY_ROBOT_DESTINATION_DWELL_SECONDS", 5.0, float
+            ),
+            auto_return=_env_bool("LIBRARY_ROBOT_AUTO_RETURN", True),
         )

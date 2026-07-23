@@ -4,111 +4,61 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Library Robot — Book Navigation</title>
-  <meta name="description" content="Control the Library Assistant Robot to navigate to a selected book." />
+  <meta name="description" content="Control and monitor the multi-waypoint Library Robot." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
-
-  <!-- Background blobs -->
-  <div class="bg-blob blob-1"></div>
-  <div class="bg-blob blob-2"></div>
-
+  <div class="bg-blob blob-1"></div><div class="bg-blob blob-2"></div>
   <div class="app-container">
-
-    <!-- ── Header ─────────────────────────────────────────────── -->
     <header class="header">
       <div class="header-icon">📚</div>
-      <div>
-        <h1 class="header-title">Library Robot</h1>
-        <p class="header-sub">Autonomous Book Navigation System</p>
-      </div>
+      <div><h1 class="header-title">Library Robot</h1><p class="header-sub">Multi-waypoint Book Navigation</p></div>
       <div class="header-badge" id="connection-badge">● Live</div>
     </header>
-
-    <!-- ── Main Grid ──────────────────────────────────────────── -->
     <main class="main-grid">
-
-      <!-- Camera Feed -->
       <section class="card camera-card">
-        <div class="card-label">
-          <span class="dot pulse"></span> Live Camera Feed
-        </div>
+        <div class="card-label"><span class="dot pulse"></span> Live Camera Feed</div>
         <div class="camera-wrapper">
-          <img id="camera-feed"
-               src="/video_feed"
-               alt="Live Camera Feed"
-               onerror="this.src='/static/placeholder.svg'" />
-          <div class="camera-overlay" id="camera-overlay">
-            <span id="overlay-state-badge" class="overlay-badge idle">IDLE</span>
-          </div>
+          <img id="camera-feed" src="/video_feed" alt="Live camera feed" onerror="this.src='/static/placeholder.svg'" />
+          <div class="camera-overlay"><span id="overlay-state-badge" class="overlay-badge idle">IDLE</span></div>
+        </div>
+        <div class="mission-grid" aria-live="polite">
+          <div><span id="destination-summary-label">Book</span><strong id="mission-book">—</strong></div>
+          <div><span>Location</span><strong id="mission-location">—</strong></div>
+          <div><span>Phase</span><strong id="mission-phase">—</strong></div>
+          <div><span id="current-target-label">Current marker</span><strong id="mission-marker">—</strong></div>
+          <div><span>Progress</span><strong id="mission-progress">—</strong></div>
+          <div><span>Route</span><strong id="mission-route">—</strong></div>
         </div>
       </section>
-
-      <!-- Controls -->
       <section class="card controls-card">
-
-        <!-- Status Section -->
         <div class="status-section">
           <p class="section-label">Robot Status</p>
-          <div class="status-display" id="status-display">
-            <div class="status-icon" id="status-icon">🔵</div>
-            <div>
-              <div class="status-state" id="status-state">IDLE</div>
-              <div class="status-desc" id="status-desc">Waiting for a book request</div>
-            </div>
-          </div>
-
-          <!-- Progress bar -->
-          <div class="progress-track">
-            <div class="progress-fill" id="progress-fill"></div>
-          </div>
-          <div class="progress-labels">
-            <span>IDLE</span>
-            <span>SCANNING</span>
-            <span>ALIGNING</span>
-            <span>APPROACHING</span>
-            <span>ARRIVED</span>
-          </div>
+          <div class="status-display"><div class="status-icon" id="status-icon">●</div><div>
+            <div class="status-state" id="status-state">IDLE</div>
+            <div class="status-desc" id="status-desc">Waiting for a book request</div>
+          </div></div>
+          <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+          <div class="reason-text" id="reason-text"></div>
         </div>
-
         <hr class="divider" />
-
-        <!-- Book Selection -->
         <div class="book-section">
-          <p class="section-label">Select a Book</p>
-          <div class="select-wrapper">
-            <select id="book-select" class="book-select">
-              <option value="" disabled selected>Loading books…</option>
-            </select>
-            <span class="select-arrow">▾</span>
-          </div>
-
-          <button id="send-btn" class="btn btn-primary" onclick="sendRobot()">
-            <span class="btn-icon">🚀</span> Send Robot
-          </button>
+          <p class="section-label" id="destination-select-label">Select a Book</p>
+          <div class="select-wrapper"><select id="book-select" class="book-select"><option value="" disabled selected>Loading books…</option></select><span class="select-arrow">▾</span></div>
+          <button id="send-btn" class="btn btn-primary" onclick="sendRobot()"><span class="btn-icon">▶</span> Send Robot</button>
         </div>
-
         <hr class="divider" />
-
-        <!-- Reset -->
         <div class="reset-section">
           <p class="section-label">Robot Control</p>
-          <button id="reset-btn" class="btn btn-danger" onclick="resetRobot()">
-            <span class="btn-icon">↺</span> Reset to Dock
-          </button>
-          <p class="reset-hint">Use this to cancel the current task and return the robot to its starting position.</p>
+          <button id="reset-btn" class="btn btn-danger" onclick="resetRobot()"><span class="btn-icon">■</span> Emergency Reset</button>
+          <p class="reset-hint">Stops the motors and cancels the current mission. Reposition at Dock before starting again.</p>
         </div>
-
       </section>
     </main>
-
-    <!-- ── Toast Notification ─────────────────────────────────── -->
     <div class="toast" id="toast"></div>
-
   </div>
-
   <script src="/static/app.js"></script>
 </body>
 </html>
