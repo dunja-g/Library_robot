@@ -54,13 +54,10 @@ class GridController:
         self._dwell_deadline: float | None = None
         self._last_progress_ticks = 0.0
         self._last_progress_at: float | None = None
-<<<<<<< HEAD
         self._step_deadline: float | None = None  # timed mode: drive until this time
-=======
         self._latest_encoders: dict | None = None
         self._latest_ultrasonic: dict | None = None
         self._latest_turn_status: str | None = None
->>>>>>> 5a5bd678a07b5462d0caa6367be3a55c731fb38c
 
     def request_grid_mission(self, plan: dict) -> None:
         if not plan.get("outbound") or not plan.get("return"):
@@ -169,13 +166,10 @@ class GridController:
             self.phase = None
             self.step_index = 0
             self._dwell_deadline = None
-<<<<<<< HEAD
             self._step_deadline = None
-=======
             self._latest_encoders = None
             self._latest_ultrasonic = None
             self._latest_turn_status = None
->>>>>>> 5a5bd678a07b5462d0caa6367be3a55c731fb38c
 
     def step(self) -> None:
         with self._lock:
@@ -250,11 +244,8 @@ class GridController:
             and step["action"] in {"TURN_LEFT", "TURN_RIGHT", "UTURN"}
         ):
             self.state = GridState.TURNING
-<<<<<<< HEAD
             self._step_deadline = None
-=======
             self._latest_turn_status = "ACTIVE"
->>>>>>> 5a5bd678a07b5462d0caa6367be3a55c731fb38c
             self._send_imu_turn(step["action"])
             return
         # Timed forward step
@@ -269,11 +260,8 @@ class GridController:
             return
         self._last_progress_ticks = 0.0
         self._last_progress_at = self._clock()
-<<<<<<< HEAD
         self._step_deadline = None
-=======
         self._latest_encoders = {"left": 0, "right": 0}
->>>>>>> 5a5bd678a07b5462d0caa6367be3a55c731fb38c
         self.state = (
             GridState.TURNING
             if step["action"] in {"TURN_LEFT", "TURN_RIGHT", "UTURN"}
