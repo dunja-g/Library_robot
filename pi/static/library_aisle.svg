@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" width="640" height="360">
+  <defs>
+    <!-- Perspective Hallway Gradient -->
+    <linearGradient id="hall-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#102542"/>
+      <stop offset="50%" stop-color="#2a456c"/>
+      <stop offset="100%" stop-color="#0d1b2a"/>
+    </linearGradient>
+    <linearGradient id="shelf-wood" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#d4a373"/>
+      <stop offset="100%" stop-color="#a37144"/>
+    </linearGradient>
+    <linearGradient id="shelf-wood-right" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#a37144"/>
+      <stop offset="100%" stop-color="#d4a373"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Floor and Ceiling Perspective -->
+  <rect width="640" height="360" fill="url(#hall-grad)"/>
+
+  <!-- Perspective Vanishing Point Ceiling & Floor -->
+  <polygon points="0,0 640,0 360,160 280,160" fill="#e9ecef" opacity="0.95"/>
+  <polygon points="0,360 640,360 360,200 280,200" fill="#ced4da" opacity="0.9"/>
+  <!-- Floor Tile Lines -->
+  <line x1="320" y1="200" x2="320" y2="360" stroke="#adb5bd" stroke-width="2"/>
+  <line x1="300" y1="200" x2="160" y2="360" stroke="#adb5bd" stroke-width="1.5"/>
+  <line x1="340" y1="200" x2="480" y2="360" stroke="#adb5bd" stroke-width="1.5"/>
+
+  <!-- Left Library Shelves in Perspective -->
+  <polygon points="0,0 280,160 280,200 0,360" fill="url(#shelf-wood)"/>
+  <!-- Left Books Shelves Grid Lines -->
+  <line x1="0" y1="90" x2="280" y2="170" stroke="#7f5539" stroke-width="3"/>
+  <line x1="0" y1="180" x2="280" y2="180" stroke="#7f5539" stroke-width="3"/>
+  <line x1="0" y1="270" x2="280" y2="190" stroke="#7f5539" stroke-width="3"/>
+  <!-- Left Books Rows Colors -->
+  <rect x="20" y="100" width="12" height="60" fill="#e63946"/>
+  <rect x="34" y="105" width="14" height="55" fill="#457b9d"/>
+  <rect x="50" y="102" width="10" height="58" fill="#2a9d8f"/>
+  <rect x="62" y="108" width="16" height="52" fill="#e9c46a"/>
+  <rect x="80" y="112" width="12" height="48" fill="#f4a261"/>
+  <rect x="94" y="110" width="15" height="50" fill="#1d3557"/>
+
+  <!-- Right Library Shelves in Perspective -->
+  <polygon points="640,0 360,160 360,200 640,360" fill="url(#shelf-wood-right)"/>
+  <!-- Right Books Shelves Grid Lines -->
+  <line x1="640" y1="90" x2="360" y2="170" stroke="#7f5539" stroke-width="3"/>
+  <line x1="640" y1="180" x2="360" y2="180" stroke="#7f5539" stroke-width="3"/>
+  <line x1="640" y1="270" x2="360" y2="190" stroke="#7f5539" stroke-width="3"/>
+  <!-- Right Books Rows Colors -->
+  <rect x="520" y="100" width="14" height="60" fill="#2a9d8f"/>
+  <rect x="536" y="105" width="12" height="55" fill="#e63946"/>
+  <rect x="550" y="102" width="16" height="58" fill="#e9c46a"/>
+  <rect x="568" y="108" width="10" height="52" fill="#457b9d"/>
+  <rect x="580" y="112" width="15" height="48" fill="#f4a261"/>
+
+  <!-- Center End Aisle Wall / Door -->
+  <rect x="280" y="160" width="80" height="40" fill="#343a40"/>
+  <rect x="300" y="170" width="40" height="30" fill="#f8f9fa" opacity="0.9"/>
+  <!-- Lighting Over Vanishing Point -->
+  <ellipse cx="320" cy="160" rx="60" ry="20" fill="#ffffff" opacity="0.3"/>
+</svg>

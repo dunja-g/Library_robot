@@ -18,6 +18,16 @@ def test_app_is_fixed_grid_only_and_lists_numbered_books(monkeypatch):
     assert client.post("/request_box", json={"box_id": "1A"}).status_code == 404
 
 
+def test_dashboard_contains_search_map_and_live_status_controls(monkeypatch):
+    _module, client = load_mock_app(monkeypatch)
+    page = client.get("/").get_data(as_text=True)
+    assert "Smart Library" in page
+    assert 'id="book-search"' in page
+    assert 'data-box="4B"' in page
+    assert 'id="encoder-health"' in page
+    assert 'id="reset-btn"' in page
+
+
 def test_search_by_title_book_id_location_and_partial_text(monkeypatch):
     _module, client = load_mock_app(monkeypatch)
     for query in ("Deep Learning", "BK001", "1A-L3-P21", "deep"):
@@ -25,6 +35,9 @@ def test_search_by_title_book_id_location_and_partial_text(monkeypatch):
         assert len(results) == 1
         assert results[0]["title"] == "Deep Learning"
         assert results[0]["location_code"] == "1A-L3-P21"
+        assert results[0]["subtitle"] == "A Modern Approach"
+        assert results[0]["rating"] == 4.8
+        assert results[0]["tags"] == ["AI", "Machine Learning", "Neural Networks"]
 
 
 def test_book_number_dispatches_without_marker_scan(monkeypatch):

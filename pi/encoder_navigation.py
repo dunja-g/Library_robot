@@ -54,7 +54,13 @@ class GridController:
         self._dwell_deadline: float | None = None
         self._last_progress_ticks = 0.0
         self._last_progress_at: float | None = None
+<<<<<<< HEAD
         self._step_deadline: float | None = None  # timed mode: drive until this time
+=======
+        self._latest_encoders: dict | None = None
+        self._latest_ultrasonic: dict | None = None
+        self._latest_turn_status: str | None = None
+>>>>>>> 5a5bd678a07b5462d0caa6367be3a55c731fb38c
 
     def request_grid_mission(self, plan: dict) -> None:
         if not plan.get("outbound") or not plan.get("return"):
@@ -110,6 +116,41 @@ class GridController:
                     current_step_label=step.get("label"),
                     target_ticks=step["target_ticks"],
                 )
+            target_ticks = float(step["target_ticks"]) if step else 0.0
+            encoder_progress = 0.0
+            if self._latest_encoders:
+                encoder_progress = min(
+                    abs(float(self._latest_encoders["left"])),
+                    abs(float(self._latest_encoders["right"])),
+                )
+            if self.state == GridState.TURNING and self.turn_source == "imu":
+                segment_progress = 50 if self._latest_turn_status == "ACTIVE" else 0
+            elif target_ticks > 0:
+                segment_progress = min(100, round(encoder_progress / target_ticks * 100))
+            else:
+                segment_progress = 0
+            status["telemetry"] = {
+                "segment_progress_percent": segment_progress,
+                "encoders": {
+                    "status": "OK" if self._latest_encoders is not None else "WAITING",
+                    "left": None
+                    if self._latest_encoders is None
+                    else self._latest_encoders["left"],
+                    "right": None
+                    if self._latest_encoders is None
+                    else self._latest_encoders["right"],
+                },
+                "imu": {
+                    "status": self._latest_turn_status
+                    or ("READY" if self.turn_source == "imu" else "DISABLED")
+                },
+                "ultrasonic": {
+                    "status": "OK"
+                    if self._latest_ultrasonic is not None
+                    else "WAITING",
+                    **({} if self._latest_ultrasonic is None else self._latest_ultrasonic),
+                },
+            }
             return status
 
     def _status_steps(self) -> list[dict]:
@@ -128,7 +169,13 @@ class GridController:
             self.phase = None
             self.step_index = 0
             self._dwell_deadline = None
+<<<<<<< HEAD
             self._step_deadline = None
+=======
+            self._latest_encoders = None
+            self._latest_ultrasonic = None
+            self._latest_turn_status = None
+>>>>>>> 5a5bd678a07b5462d0caa6367be3a55c731fb38c
 
     def step(self) -> None:
         with self._lock:
@@ -161,6 +208,7 @@ class GridController:
                 if not self._valid_encoders(encoders):
                     self._safe_stop("encoder_unavailable")
                     return
+                self._latest_encoders = dict(encoders)
                 # Require both drivetrain sides to progress. Using an average
                 # could hide one stalled wheel while the other keeps counting.
                 progress = min(
@@ -202,7 +250,11 @@ class GridController:
             and step["action"] in {"TURN_LEFT", "TURN_RIGHT", "UTURN"}
         ):
             self.state = GridState.TURNING
+<<<<<<< HEAD
             self._step_deadline = None
+=======
+            self._latest_turn_status = "ACTIVE"
+>>>>>>> 5a5bd678a07b5462d0caa6367be3a55c731fb38c
             self._send_imu_turn(step["action"])
             return
         # Timed forward step
@@ -217,7 +269,11 @@ class GridController:
             return
         self._last_progress_ticks = 0.0
         self._last_progress_at = self._clock()
+<<<<<<< HEAD
         self._step_deadline = None
+=======
+        self._latest_encoders = {"left": 0, "right": 0}
+>>>>>>> 5a5bd678a07b5462d0caa6367be3a55c731fb38c
         self.state = (
             GridState.TURNING
             if step["action"] in {"TURN_LEFT", "TURN_RIGHT", "UTURN"}
@@ -237,6 +293,7 @@ class GridController:
 
     def _step_imu_turn(self) -> None:
         status = self.serial.get_turn_status()
+        self._latest_turn_status = status
         if status == "ACTIVE":
             return
         if status == "DONE":
@@ -314,6 +371,7 @@ class GridController:
         if not self._valid_ultrasonic(readings):
             self._safe_stop("ultrasonic_unavailable")
             return False
+        self._latest_ultrasonic = dict(readings)
         for direction in ("left", "center", "right"):
             if float(readings[direction]) < self.obstacle_distance_cm:
                 self._safe_stop(f"{direction}_obstacle")

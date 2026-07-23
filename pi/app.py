@@ -29,6 +29,14 @@ except ImportError:  # Supports ``python pi/app.py``.
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 app = Flask(__name__)
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
+
+@app.after_request
+def add_header(response):
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, post-check=0, pre-check=0, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '-1'
+    return response
 
 USE_MOCK = os.getenv("LIBRARY_ROBOT_USE_MOCK", "true").lower() in {
     "1", "true", "yes", "on"

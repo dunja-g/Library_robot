@@ -9,6 +9,15 @@ BOOK_DATABASE = {
     # ---------------- 1A 号箱 (Row 1 Left - 现场编号 8712) ----------------
     "Deep Learning": {
         "book_id": "BK001",
+        "subtitle": "A Modern Approach",
+        "authors": ["Ian Goodfellow", "Yoshua Bengio", "Aaron Courville"],
+        "rating": 4.8,
+        "reviews": 324,
+        "tags": ["AI", "Machine Learning", "Neural Networks"],
+        "description": (
+            "The definitive modern introduction to deep learning "
+            "by the pioneers of the field."
+        ),
         "box_id": "1A",
         "box_label": "8712",
         "layer": 3,
@@ -343,6 +352,16 @@ def search_books(query: str = "") -> list[dict]:
             "layer": book["layer"],
             "position": book["position"],
         }
+        for field in (
+            "subtitle",
+            "authors",
+            "rating",
+            "reviews",
+            "tags",
+            "description",
+        ):
+            if field in book:
+                res[field] = deepcopy(book[field])
         if "box_label" in book:
             res["box_label"] = book["box_label"]
         results.append(res)

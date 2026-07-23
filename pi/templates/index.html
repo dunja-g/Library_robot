@@ -3,68 +3,340 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Library Robot — Fixed Grid Book Finder</title>
-  <meta name="description" content="Control and monitor the multi-waypoint Library Robot." />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css" />
+  <title>Smart Library - Robot Book Finder</title>
+  <meta name="description" content="Find a numbered book and send the fixed-grid library robot." />
+  <link rel="stylesheet" href="/static/style.css?v=11" />
 </head>
 <body>
-  <div class="bg-blob blob-1"></div><div class="bg-blob blob-2"></div>
-  <div class="app-container">
-    <header class="header">
-      <div class="header-icon">📚</div>
-      <div><h1 class="header-title">Library Robot</h1><p class="header-sub">Fixed Grid · Encoder + IMU · No Scanning</p></div>
-      <div class="header-badge" id="connection-badge">● Live</div>
-    </header>
-    <main class="main-grid">
-      <section class="card camera-card">
-        <div class="card-label"><span class="dot pulse"></span> Live Camera Feed</div>
-        <div class="camera-wrapper">
-          <img id="camera-feed" src="/video_feed" alt="Live camera feed" onerror="this.src='/static/placeholder.svg'" />
-          <div class="camera-overlay"><span id="overlay-state-badge" class="overlay-badge idle">IDLE</span></div>
+  <!-- Header: Official NUS Logo + Brand Title + Main Nav + Actions (Sticky Topbar) -->
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Smart Library home">
+      <!-- Official NUS Shield & Text Logo (Inline SVG for Guaranteed Instant Display) -->
+      <svg class="nus-official-logo" viewBox="0 0 520 180" width="168" height="58" aria-hidden="true">
+        <!-- NUS Shield Base -->
+        <g transform="translate(10, 10)">
+          <path d="M 0 0 L 140 0 C 140 0 140 100 140 105 C 140 145 70 170 70 170 C 70 170 0 145 0 105 Z" fill="#003D7C"/>
+          <path d="M 0 65 L 140 65 M 70 0 L 70 65" stroke="#FFFFFF" stroke-width="2.5"/>
+          <!-- Top-Left: Open Book -->
+          <g transform="translate(12, 12)">
+            <rect x="0" y="0" width="46" height="40" fill="#EF7C00" rx="3"/>
+            <path d="M 4 5 Q 23 2 42 5 V 35 Q 23 32 4 35 Z" fill="#FFFFFF"/>
+            <path d="M 23 3 V 33" stroke="#EF7C00" stroke-width="1.5"/>
+            <line x1="8" y1="11" x2="19" y2="11" stroke="#003D7C" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="8" y1="17" x2="19" y2="17" stroke="#003D7C" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="8" y1="23" x2="19" y2="23" stroke="#003D7C" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="27" y1="11" x2="38" y2="11" stroke="#003D7C" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="27" y1="17" x2="38" y2="17" stroke="#003D7C" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="27" y1="23" x2="38" y2="23" stroke="#003D7C" stroke-width="1.5" stroke-linecap="round"/>
+          </g>
+          <!-- Top-Right: 3 Interlocking Rings -->
+          <g transform="translate(82, 12)">
+            <circle cx="14" cy="14" r="10" fill="none" stroke="#EF7C00" stroke-width="3.5"/>
+            <circle cx="28" cy="14" r="10" fill="none" stroke="#EF7C00" stroke-width="3.5"/>
+            <circle cx="21" cy="25" r="10" fill="none" stroke="#EF7C00" stroke-width="3.5"/>
+          </g>
+          <!-- Bottom: Lion -->
+          <g transform="translate(15, 74)">
+            <path d="M 25 35 C 20 20 35 15 50 15 C 65 15 80 20 90 28 C 95 24 100 12 105 10 C 102 18 98 25 94 30 C 98 40 92 50 85 55 C 80 58 70 60 55 60 C 40 60 30 55 25 35 Z" fill="#EF7C00"/>
+            <path d="M 28 45 L 20 68 H 28 L 34 52 M 45 48 L 40 68 H 48 L 52 52 M 72 48 L 78 68 H 86 L 80 50 M 88 42 L 95 65 H 103 L 96 42" stroke="#EF7C00" stroke-width="5" stroke-linecap="round"/>
+            <circle cx="16" cy="24" r="2.5" fill="#FFFFFF"/>
+          </g>
+        </g>
+        <!-- NUS Text -->
+        <text x="175" y="92" font-family="Inter, -apple-system, sans-serif" font-weight="900" font-size="82" fill="#003D7C" letter-spacing="-1.5">NUS</text>
+        <text x="178" y="128" font-family="Inter, -apple-system, sans-serif" font-weight="600" font-size="22" fill="#003D7C" letter-spacing="-0.2">National University of Singapore</text>
+      </svg>
+      <div class="brand-divider"></div>
+      <div class="brand-text">
+        <strong class="brand-title">Smart Library</strong>
+        <small class="brand-subtitle">Find Books. Let the Robot Bring You There.</small>
+      </div>
+    </a>
+
+    <nav class="main-nav" aria-label="Primary navigation">
+      <span class="nav-item active">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+        <b class="nav-label" id="nav-search-label">Search</b>
+      </span>
+      <span class="nav-item">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5h12v17l-6-4-6 4z"/></svg>
+        <span class="nav-label" id="nav-mylib-label">My Library</span>
+      </span>
+      <span class="nav-item">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5c3-1 5.6-.4 8 1.4v13c-2.4-1.8-5-2.4-8-1.4zM20 5.5c-3-1-5.6-.4-8 1.4v13c2.4-1.8 5-2.4 8-1.4z"/></svg>
+        <span class="nav-label" id="nav-collections-label">Collections</span>
+      </span>
+      <span class="nav-item">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.8 9a2.3 2.3 0 1 1 3.1 2.2c-.9.4-.9 1.1-.9 1.8M12 17h.01"/></svg>
+        <span class="nav-label" id="nav-support-label">Support</span>
+      </span>
+    </nav>
+
+    <div class="top-actions">
+      <button class="language" id="language-toggle" type="button" onclick="toggleLanguage()">EN&nbsp;&nbsp;|&nbsp;&nbsp;&#20013;&#25991;</button>
+      <button class="header-icon" type="button" aria-label="Notifications">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 8.5h18C21 15 18 15 18 8zM10 20h4"/></svg>
+      </button>
+      <button class="profile-icon" type="button" aria-label="User profile">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c.6-4.1 3-6.2 7-6.2s6.4 2.1 7 6.2"/></svg>
+      </button>
+      <span class="mode-chip" id="connection-badge">&bull; Fixed Grid</span>
+    </div>
+  </header>
+
+  <!-- Level 2: Search Hero Band (Pale Orange Campus Line Art + Solid Orange Accent Line) -->
+  <section class="search-hero">
+    <div class="hero-content">
+      <!-- Mascot Avatar Artwork -->
+      <div class="mascot-avatar" title="Smart Library Mascot">
+        <svg viewBox="0 0 120 140" width="86" height="100" aria-hidden="true">
+          <!-- Skateboard Base -->
+          <ellipse cx="60" cy="128" rx="42" ry="8" fill="#1b2a4a"/>
+          <circle cx="32" cy="132" r="5" fill="#EF7C00"/>
+          <circle cx="88" cy="132" r="5" fill="#EF7C00"/>
+          <!-- Feet -->
+          <ellipse cx="44" cy="118" rx="10" ry="6" fill="#EF7C00"/>
+          <ellipse cx="76" cy="118" rx="10" ry="6" fill="#EF7C00"/>
+          <!-- Mascot Body -->
+          <ellipse cx="60" cy="74" rx="36" ry="42" fill="#FFB800"/>
+          <ellipse cx="60" cy="78" rx="26" ry="30" fill="#FFCF40"/>
+          <!-- Sprouts -->
+          <ellipse cx="60" cy="24" rx="7" ry="10" fill="#FF8A00"/>
+          <circle cx="60" cy="14" r="5" fill="#FFB800"/>
+          <!-- Eyes -->
+          <circle cx="48" cy="56" r="6" fill="#FFFFFF"/>
+          <circle cx="72" cy="56" r="6" fill="#FFFFFF"/>
+          <circle cx="50" cy="56" r="3" fill="#1B2A4A"/>
+          <circle cx="74" cy="56" r="3" fill="#1B2A4A"/>
+          <!-- Cheeks & Smile -->
+          <ellipse cx="40" cy="66" rx="4" ry="3" fill="#FF8A00" opacity="0.6"/>
+          <ellipse cx="80" cy="66" rx="4" ry="3" fill="#FF8A00" opacity="0.6"/>
+          <path d="M 52 68 Q 60 76 68 68" stroke="#1B2A4A" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+        </svg>
+      </div>
+
+      <!-- Level 3: Pure-White Elevated Search Card -->
+      <div class="search-main">
+        <div class="search-shell">
+          <span class="search-icon" aria-hidden="true">&#9906;</span>
+          <input id="book-search" list="book-options"
+                 placeholder="Search title, book ID, or location code"
+                 aria-label="Search title, book ID, or location code"
+                 autocomplete="off" />
+          <button class="clear-search" id="clear-search" type="button" onclick="clearSearch()" aria-label="Clear search">&times;</button>
+          <datalist id="book-options"></datalist>
+          <button id="search-btn" type="button" onclick="previewSearch()">Search</button>
         </div>
-        <div class="mission-grid" aria-live="polite">
-          <div><span id="destination-summary-label">Book</span><strong id="mission-book">—</strong></div>
-          <div><span>Location</span><strong id="mission-location">—</strong></div>
-          <div><span>Phase</span><strong id="mission-phase">—</strong></div>
-          <div><span id="current-target-label">Current action</span><strong id="mission-marker">—</strong></div>
-          <div><span>Progress</span><strong id="mission-progress">—</strong></div>
-          <div><span>Route</span><strong id="mission-route">—</strong></div>
+
+        <div class="popular-row">
+          <span id="popular-label">Popular searches:</span>
+          <button class="suggestion active" type="button" onclick="useSuggestion('Deep Learning')">Deep Learning</button>
+          <button class="suggestion" type="button" onclick="useSuggestion('Machine Learning')">Machine Learning</button>
+          <button class="suggestion" type="button" onclick="useSuggestion('Computer Vision')">Computer Vision</button>
+          <button class="suggestion" type="button" onclick="useSuggestion('Artificial Intelligence')">Artificial Intelligence</button>
+          <button class="suggestion" type="button" onclick="useSuggestion('Reinforcement Learning')">Reinforcement Learning</button>
+          <button class="suggestion" type="button" onclick="useSuggestion('Data Science')">Data Science</button>
         </div>
-      </section>
-      <section class="card controls-card">
-        <div class="status-section">
-          <p class="section-label">Robot Status</p>
-          <div class="status-display"><div class="status-icon" id="status-icon">●</div><div>
-            <div class="status-state" id="status-state">IDLE</div>
-            <div class="status-desc" id="status-desc">Waiting for a book request</div>
-          </div></div>
-          <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
-          <div class="reason-text" id="reason-text"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Level 5: Main Content Area -->
+  <main class="dashboard">
+    <!-- Left Column: Book Detail Panel (Level 6 Card) -->
+    <section class="panel book-panel card--primary">
+      <div class="book-overview">
+        <!-- O'REILLY Deep Learning Book Cover Image -->
+        <div class="book-cover-wrap">
+          <img src="/static/jellyfish_cover.svg" alt="Deep Learning book cover" class="book-cover-img" />
+          <span class="hidden" id="cover-title">DEEP LEARNING</span>
         </div>
-        <hr class="divider" />
-        <div class="book-section">
-          <p class="section-label" id="destination-select-label">Find a Book</p>
-          <div class="select-wrapper">
-            <input id="book-search" class="book-select" list="book-options"
-                   placeholder="Title, BK001, or 1A-L3-P21"
-                   autocomplete="off" />
-            <datalist id="book-options"></datalist>
+
+        <div class="book-copy">
+          <span class="eyebrow">Search result</span>
+          <h1 id="book-title">Deep Learning</h1>
+          <p id="book-subtitle" class="book-subtitle">A Modern Approach</p>
+          <p id="book-meta" class="book-author">Ian Goodfellow, Yoshua Bengio, Aaron Courville</p>
+          <div class="rating"><b>&#9733;&#9733;&#9733;&#9733;&#9733;</b><span>4.8 (324 reviews)</span></div>
+          <div class="book-tags"><span>AI</span><span>Machine Learning</span><span>Neural Networks</span></div>
+          <p id="search-result" class="search-result">Deep Learning &middot; BK001 &middot; 1A-L3-P21</p>
+        </div>
+      </div>
+
+      <p id="book-description" class="book-description">The definitive modern introduction to deep learning by the pioneers of the field.</p>
+
+      <!-- Pure White Elevated Location Sub-Card -->
+      <div class="location-card">
+        <div class="location-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+        </div>
+        <div>
+          <small><b id="location-heading">Location in Library</b></small>
+          <strong id="book-location">Zone B / Shelf 3 / Level 3 / Slot 12</strong>
+          <span id="location-code">Robot navigation target: 3B (Row 3, Column B)</span>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <button id="send-btn" class="primary-btn" type="button" onclick="sendRobot()">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" style="margin-right:8px;vertical-align:middle;"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4M8 16h.01M16 16h.01"/></svg>
+        <span id="send-btn-label">Send Robot to This Book</span>
+      </button>
+      <button class="secondary-btn" type="button" onclick="addToList()">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px;vertical-align:middle;"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+        <span id="add-btn-label">Add to My List</span>
+      </button>
+    </section>
+
+    <!-- Middle Column: Workspace (Mission Strip + Map + Task) -->
+    <section class="workspace">
+      <!-- Level 4: Separate Light-Blue Elevated Mission Progress Band -->
+      <div class="journey-strip mission-strip" aria-label="Journey progress">
+        <div class="journey-step done" id="journey-search">
+          <span class="step-circle-badge">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>
+            <span class="step-check-dot">✓</span>
+          </span>
+          <b class="step-title">1 Search</b>
+        </div>
+
+        <div class="journey-arrow-connector">
+          <span class="dots">•••••••••</span>
+          <span class="arrow">&gt;</span>
+        </div>
+
+        <div class="journey-step active" id="journey-navigate">
+          <span class="step-circle-badge active-badge">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="4" y="9" width="16" height="11" rx="2"/><path d="M12 4v5M9 15h.01M15 15h.01"/></svg>
+          </span>
+          <b class="step-title active-title">2 Navigate</b>
+        </div>
+
+        <div class="journey-arrow-connector">
+          <span class="dots">•••••••••</span>
+          <span class="arrow">&gt;</span>
+        </div>
+
+        <div class="journey-step" id="journey-arrive">
+          <span class="step-circle-badge">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"/></svg>
+          </span>
+          <b class="step-title">3 Arrive</b>
+        </div>
+      </div>
+
+      <div class="workspace-grid">
+        <!-- Library Map Panel -->
+        <section class="panel map-panel">
+          <div class="panel-heading">
+            <div><h2 id="map-heading">Library Map</h2><span>(4 Rows &times; 2 Columns)</span></div>
+            <div class="map-legend"><b></b> Robot <b></b> Target <em></em> Route <em></em> Return Route</div>
           </div>
-          <div class="search-result" id="search-result">Enter a title, book ID, or location code.</div>
-          <button id="send-btn" class="btn btn-primary" onclick="sendRobot()"><span class="btn-icon">⌕</span> Find &amp; Send Robot</button>
-        </div>
-        <hr class="divider" />
-        <div class="reset-section">
-          <p class="section-label">Robot Control</p>
-          <button id="reset-btn" class="btn btn-danger" onclick="resetRobot()"><span class="btn-icon">■</span> Emergency Reset</button>
-          <p class="reset-hint">Stops the motors and cancels the current mission. Reposition at Dock before starting again.</p>
+          <div class="library-map">
+            <svg class="route-layer" viewBox="0 0 340 480" preserveAspectRatio="none" aria-hidden="true">
+              <path id="route-path" d="" />
+              <path id="return-path" d="" />
+            </svg>
+            <div class="shelf-grid">
+              <div class="shelf-box" data-box="4A">4A</div><div class="shelf-box" data-box="4B">4B</div>
+              <div class="shelf-box" data-box="3A">3A</div><div class="shelf-box" data-box="3B">3B</div>
+              <div class="shelf-box" data-box="2A">2A</div><div class="shelf-box" data-box="2B">2B</div>
+              <div class="shelf-box" data-box="1A">1A</div><div class="shelf-box" data-box="1B">1B</div>
+            </div>
+            <div class="dock-node">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M12 7v4M8 16h.01M16 16h.01"/></svg>
+              <small>Dock</small>
+            </div>
+          </div>
+        </section>
+
+        <!-- Current Task Panel -->
+        <section class="panel task-panel">
+          <div class="panel-heading"><h2 id="task-heading">Current Task</h2><span id="task-location">B3 / Level 3 / Slot 12</span></div>
+          <ol class="task-list">
+            <li id="task-query" class="done">
+              <span class="task-check">✓</span>
+              <div><b>1. Query location</b><small id="task-query-copy">B3 / Level 3 / Slot 12</small></div>
+            </li>
+            <li id="task-plan" class="done">
+              <span class="task-check">✓</span>
+              <div><b>2. Plan route</b><small id="task-plan-copy">Dock &rarr; Row 3 &rarr; Right &rarr; 3B</small></div>
+            </li>
+            <li id="task-navigate" class="active">
+              <span class="task-icon">🤖</span>
+              <div><b>3. Navigate</b><small id="task-action">Moving to target...</small></div>
+            </li>
+            <li id="task-arrive">
+              <span>4</span>
+              <div><b>4. Arrive</b><small id="task-arrive-copy">Stop 3B: 5m in front of 3B</small></div>
+            </li>
+            <li id="task-return">
+              <span>5</span>
+              <div><b>5. Return to Dock</b><small id="task-return-copy">Returning to home position</small></div>
+            </li>
+          </ol>
+
+          <!-- Distance Progress Sub-Card -->
+          <div class="progress-subcard">
+            <div class="progress-header">
+              <h3 id="distance-heading">Distance Progress</h3>
+              <strong id="progress-percent">65%</strong>
+            </div>
+            <div class="progress-track"><div id="progress-fill" style="width: 65%;"></div></div>
+            <div class="progress-footer">
+              <span id="progress-target">Target: 3B</span>
+              <span id="step-progress">Est. time: ~45 s</span>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- Right Column: Live Camera + Robot Status + Trending Books -->
+    <aside class="right-column">
+      <section class="panel camera-panel">
+        <div class="panel-heading"><h2 id="camera-heading">Live Camera</h2><span class="live-dot">&bull; LIVE</span></div>
+        <div class="camera-frame">
+          <img id="camera-feed" src="/video_feed" alt="Live camera feed"
+               onerror="this.src='/static/library_aisle.svg'" />
+          <span id="overlay-state-badge" class="camera-state">IDLE</span>
+          <!-- Floating Badge (3B) in Top-Right Corner -->
+          <span id="camera-target" class="camera-target">3B</span>
         </div>
       </section>
-    </main>
-    <div class="toast" id="toast"></div>
-  </div>
-  <script src="/static/app.js"></script>
+
+      <section class="panel robot-panel">
+        <div class="panel-heading"><h2 id="robot-status-heading">Robot Status</h2><span id="robot-state" class="state-pill">Navigating</span></div>
+        <div class="sensor-grid">
+          <div><span>Encoders</span><b id="encoder-health">OK</b><small id="encoder-detail">L 10000 &middot; R 10000</small></div>
+          <div><span>MPU6500</span><b id="imu-health">OK</b><small>Angle control</small></div>
+          <div><span>Ultrasonic</span><b id="ultrasonic-health">OK</b><small id="ultrasonic-detail">L 100 &middot; C 100 &middot; R 100</small></div>
+        </div>
+        <div class="status-message"><span id="status-icon">&bull;</span><div><b id="status-state">IDLE</b><small id="status-desc">Enter a book to begin</small></div></div>
+        <div id="reason-text" class="reason-text"></div>
+        <button id="reset-btn" class="danger-btn compact" type="button" onclick="resetRobot()">Emergency Stop &amp; Reset</button>
+      </section>
+
+      <section class="panel trending-panel">
+        <div class="panel-heading">
+          <h2><span class="trend-icon">&#128293;</span><span id="trending-title">Trending Books</span></h2>
+          <span id="quick-code">1A-L3-P21</span>
+        </div>
+        <ol class="trending-list">
+          <li><button type="button" onclick="useSuggestion('Deep Learning')"><b>1</b><span>Deep Learning</span><i>&rsaquo;</i></button></li>
+          <li><button type="button" onclick="useSuggestion('Reinforcement Learning')"><b>2</b><span>Reinforcement Learning</span><i>&rsaquo;</i></button></li>
+          <li><button type="button" onclick="useSuggestion('Computer Vision')"><b>3</b><span>Computer Vision</span><i>&rsaquo;</i></button></li>
+          <li><button type="button" onclick="useSuggestion('Artificial Intelligence')"><b>4</b><span>Artificial Intelligence</span><i>&rsaquo;</i></button></li>
+          <li><button type="button" onclick="useSuggestion('Machine Learning')"><b>5</b><span>Machine Learning</span><i>&rsaquo;</i></button></li>
+        </ol>
+      </section>
+    </aside>
+  </main>
+
+  <footer>
+    NUS Smart Library Robot <span class="divider">|</span> Powered by Raspberry Pi 5 + Arduino Mega
+  </footer>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="/static/app.js?v=11"></script>
 </body>
 </html>
