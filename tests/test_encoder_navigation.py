@@ -101,6 +101,18 @@ def test_one_stalled_drivetrain_side_cannot_be_hidden_by_other_encoder():
     assert controller.get_status()["reason"] == "encoder_stall"
 
 
+def test_status_exposes_dashboard_sensor_telemetry():
+    controller, serial, _clock = make_controller()
+    serial.encoders = {"left": 2, "right": 3}
+    controller.step()
+    telemetry = controller.get_status()["telemetry"]
+    assert telemetry["encoders"] == {"status": "OK", "left": 2, "right": 3}
+    assert telemetry["ultrasonic"] == {
+        "status": "OK", "left": 100, "center": 100, "right": 100
+    }
+    assert 0 <= telemetry["segment_progress_percent"] <= 100
+
+
 def test_reset_cancels_grid_plan_and_stops():
     controller, serial, _clock = make_controller()
     controller.reset()
