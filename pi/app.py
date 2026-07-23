@@ -44,7 +44,7 @@ def add_header(response):
     response.headers['Expires'] = '-1'
     return response
 
-USE_MOCK = os.getenv("LIBRARY_ROBOT_USE_MOCK", "true").lower() in {
+USE_MOCK = os.getenv("LIBRARY_ROBOT_USE_MOCK", "false").lower() in {
     "1", "true", "yes", "on"
 }
 GRID_TURN_SOURCE = os.getenv(
