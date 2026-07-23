@@ -21,9 +21,9 @@ def test_grid_route_is_generated_from_late_bound_dimensions():
 
     assert route["box_id"] == "3B"
     assert route["outbound"] == [
-        {"action": "FORWARD", "target_ticks": 2300, "label": "Dock to row 3"},
-        {"action": "TURN_RIGHT", "target_ticks": 420, "label": "Face box 3B"},
-        {"action": "FORWARD", "target_ticks": 350, "label": "Approach box 3B"},
+        {"action": "FORWARD", "target_ticks": 2300, "target_seconds": 0.0, "label": "Dock to row 3"},
+        {"action": "TURN_RIGHT", "target_ticks": 420, "target_seconds": 0.0, "label": "Face box 3B"},
+        {"action": "FORWARD", "target_ticks": 350, "target_seconds": 0.0, "label": "Approach box 3B"},
     ]
     assert [step["action"] for step in route["return"]] == [
         "UTURN", "FORWARD", "TURN_LEFT", "FORWARD"
