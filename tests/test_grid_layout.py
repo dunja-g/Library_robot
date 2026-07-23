@@ -49,3 +49,35 @@ def test_unmeasured_layout_refuses_to_guess_a_route():
 def test_invalid_box_is_rejected():
     with pytest.raises(ValueError, match="box_id"):
         normalize_box_id("5C")
+
+
+def test_four_ticks_per_revolution_can_derive_linear_calibration():
+    calibration = EncoderCalibration(
+        turn_90_ticks=2,
+        turn_180_ticks=4,
+        ticks_per_revolution=4,
+        wheel_diameter_cm=6.5,
+    )
+    assert calibration.missing_fields == []
+    assert calibration.distance_ticks(100) == 20
+
+
+def test_imu_turn_source_does_not_require_turn_tick_calibration():
+    route = build_grid_route(
+        "2A",
+        GridGeometry(80, 75, 35),
+        EncoderCalibration(
+            ticks_per_revolution=4,
+            wheel_diameter_cm=6.5,
+        ),
+        turn_source="imu",
+    )
+    assert route["outbound"][1]["target_ticks"] == 0
+
+
+def test_confirmed_encoder_and_wheel_defaults(monkeypatch):
+    monkeypatch.delenv("LIBRARY_ROBOT_ENCODER_TICKS_PER_REV", raising=False)
+    monkeypatch.delenv("LIBRARY_ROBOT_WHEEL_DIAMETER_CM", raising=False)
+    calibration = EncoderCalibration.from_env()
+    assert calibration.ticks_per_revolution == 4
+    assert calibration.wheel_diameter_cm == 6.5

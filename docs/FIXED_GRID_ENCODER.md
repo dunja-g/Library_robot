@@ -4,6 +4,9 @@ This mode removes route-marker dependency for a permanent two-column,
 four-row layout. It assumes a centre aisle, column A on the left, column B on
 the right, and a repeatable Dock pose facing row 1.
 
+See `HARDWARE_PINOUT.md` for the consolidated encoder, MPU6500, ultrasonic,
+and motor-shield wiring.
+
 ```text
 4A  | aisle |  4B
 3A  |       |  3B
@@ -66,8 +69,11 @@ LIBRARY_ROBOT_GRID_FIRST_ROW_CM=
 LIBRARY_ROBOT_GRID_ROW_SPACING_CM=
 LIBRARY_ROBOT_GRID_APPROACH_CM=
 LIBRARY_ROBOT_ENCODER_TICKS_PER_CM=
+LIBRARY_ROBOT_ENCODER_TICKS_PER_REV=4
+LIBRARY_ROBOT_WHEEL_DIAMETER_CM=6.5
 LIBRARY_ROBOT_ENCODER_TURN_90_TICKS=
 LIBRARY_ROBOT_ENCODER_TURN_180_TICKS=
+LIBRARY_ROBOT_GRID_TURN_SOURCE=imu
 ```
 
 - `GRID_FIRST_ROW_CM`: Dock reference line to the turn centre of row 1.
@@ -75,8 +81,14 @@ LIBRARY_ROBOT_ENCODER_TURN_180_TICKS=
 - `GRID_APPROACH_CM`: centre aisle to the safe stop point at a box.
 - `ENCODER_TICKS_PER_CM`: average encoder ticks divided by measured straight
   travel distance.
+- Alternatively, leave ticks-per-cm blank and provide the confirmed
+  `ENCODER_TICKS_PER_REV=4` plus measured wheel diameter.
 - `ENCODER_TURN_90_TICKS`: average ticks during a physical 90-degree turn.
 - `ENCODER_TURN_180_TICKS`: independently measured 180-degree turn ticks.
+
+When `GRID_TURN_SOURCE=imu`, the two turn-tick values may remain blank because
+turn completion comes from the MPU6500. This is recommended for the current
+four-count-per-revolution encoder.
 
 The server reports the missing values at `/navigation_mode` and refuses
 `/request_box` with HTTP 503 until calibration is complete.

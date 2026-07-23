@@ -41,6 +41,7 @@ pi/serial_bridge.py            Raspberry Pi ↔ Arduino serial protocol
 pi/navigation_config.py        Environment-based tuning
 tests/                         Hardware-free unit and integration tests
 docs/MULTI_WAYPOINT_MVP.md     Placement, tuning, safety, and runbook
+docs/HARDWARE_PINOUT.md        Final Mega, encoder, IMU, and sensor wiring
 ```
 
 ## Run without hardware

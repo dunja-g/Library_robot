@@ -13,6 +13,7 @@ class FakeSerial:
         self.encoders = {"left": 0, "right": 0}
         self.ultrasonic = {"left": 100, "center": 100, "right": 100}
         self.reset_ok = True
+        self.turn_status = "ACTIVE"
     def send_stop(self): self.commands.append("STOP"); return True
     def send_forward(self): self.commands.append("FORWARD"); return True
     def send_rotate_left(self): self.commands.append("ROTATE_LEFT"); return True
@@ -23,6 +24,10 @@ class FakeSerial:
         return self.reset_ok
     def get_encoders(self): return self.encoders
     def get_ultrasonic(self): return self.ultrasonic
+    def send_turn_left(self): self.commands.append("TURN_LEFT"); return True
+    def send_turn_right(self): self.commands.append("TURN_RIGHT"); return True
+    def send_turn_uturn(self): self.commands.append("TURN_UTURN"); return True
+    def get_turn_status(self): return self.turn_status
 
 
 def make_controller():
@@ -102,3 +107,20 @@ def test_reset_cancels_grid_plan_and_stops():
     assert controller.get_state() == GridState.IDLE.value
     assert controller.plan is None
     assert serial.commands[-1] == "STOP"
+
+
+def test_imu_turn_source_does_not_depend_on_four_tick_encoder_turns():
+    serial, clock = FakeSerial(), FakeClock()
+    controller = GridController(
+        serial, clock=clock, destination_dwell_seconds=0, turn_source="imu"
+    )
+    plan = build_grid_route(
+        "1B", GridGeometry(10, 10, 5), EncoderCalibration(1, 4, 8)
+    )
+    controller.request_grid_mission(plan)
+    complete_step(controller, serial)
+    assert controller.get_state() == GridState.TURNING.value
+    assert serial.commands[-1] == "TURN_RIGHT"
+    serial.turn_status = "DONE"
+    controller.step()
+    assert controller.get_state() == GridState.MOVING.value

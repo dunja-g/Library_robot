@@ -14,6 +14,10 @@ def test_firmware_contains_full_serial_protocol():
         "BACKWARD",
         "ROTATE_LEFT",
         "ROTATE_RIGHT",
+        "TURN_LEFT",
+        "TURN_RIGHT",
+        "TURN_UTURN",
+        "TURN_STATUS",
         "STOP",
         "CHECK",
         "ENCODER",
@@ -48,3 +52,13 @@ def test_firmware_uses_interrupt_encoder_inputs():
     assert "ENCODER_RIGHT_PIN = 19" in FIRMWARE
     assert "attachInterrupt" in FIRMWARE
     assert "volatile long encoderLeftTicks" in FIRMWARE
+
+
+def test_firmware_integrates_person1_imu_turns_without_blocking_loop():
+    assert "#include <Wire.h>" in FIRMWARE
+    assert "MPU_ADDR = 0x68" in FIRMWARE
+    assert "Wire.setClock(400000)" in FIRMWARE
+    assert "updateImuTurn();" in FIRMWARE
+    assert "IMU_TURN_TIMEOUT_MS = 5000" in FIRMWARE
+    assert "while (abs(angle)" not in FIRMWARE
+    assert 'Serial.print("TURN:")' in FIRMWARE

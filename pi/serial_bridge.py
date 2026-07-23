@@ -78,6 +78,44 @@ class SerialBridge:
     def send_rotate_right(self) -> bool:
         return self._send("ROTATE_RIGHT")
 
+    def send_turn_left(self) -> bool:
+        """Request a self-terminating 90-degree IMU turn."""
+        return self._send("TURN_LEFT")
+
+    def send_turn_right(self) -> bool:
+        """Request a self-terminating 90-degree IMU turn."""
+        return self._send("TURN_RIGHT")
+
+    def send_turn_uturn(self) -> bool:
+        """Request a self-terminating 180-degree IMU turn."""
+        return self._send("TURN_UTURN")
+
+    @staticmethod
+    def parse_turn_status(line: str) -> str | None:
+        if not line.startswith("TURN:"):
+            return None
+        status = line[5:].strip()
+        return status if status in {"IDLE", "ACTIVE", "DONE", "ERROR"} else None
+
+    def get_turn_status(self, response_lines: int = 3) -> str | None:
+        """Return the state of a self-terminating MPU6500 turn."""
+        if response_lines <= 0:
+            raise ValueError("response_lines must be positive")
+        with self._lock:
+            if not self._write_locked("TURN_STATUS"):
+                return None
+            for _ in range(response_lines):
+                try:
+                    raw = self.ser.readline()
+                except (serial.SerialException, OSError) as exc:
+                    logger.error("Failed to read turn status: %s", exc)
+                    return None
+                line = raw.decode("ascii", errors="ignore").strip()
+                status = self.parse_turn_status(line)
+                if status is not None:
+                    return status
+        return None
+
     def send_stop(self) -> bool:
         return self._send("STOP")
 

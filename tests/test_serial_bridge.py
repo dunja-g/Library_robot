@@ -49,6 +49,9 @@ def test_motion_commands_match_arduino_protocol():
     bridge.send_backward()
     bridge.send_rotate_left()
     bridge.send_rotate_right()
+    bridge.send_turn_left()
+    bridge.send_turn_right()
+    bridge.send_turn_uturn()
     bridge.send_stop()
 
     assert fake.writes == [
@@ -56,6 +59,9 @@ def test_motion_commands_match_arduino_protocol():
         b"BACKWARD\n",
         b"ROTATE_LEFT\n",
         b"ROTATE_RIGHT\n",
+        b"TURN_LEFT\n",
+        b"TURN_RIGHT\n",
+        b"TURN_UTURN\n",
         b"STOP\n",
     ]
     assert fake.input_reset
@@ -67,6 +73,9 @@ def test_bridge_exposes_every_method_required_by_robot_controller():
         "send_forward",
         "send_rotate_left",
         "send_rotate_right",
+        "send_turn_left",
+        "send_turn_right",
+        "send_turn_uturn",
         "send_stop",
         "get_ultrasonic",
     ):
@@ -110,6 +119,18 @@ def test_encoder_reset_and_read_protocol():
 @pytest.mark.parametrize("line", ["", "ENC:1", "ENC:1,two", "ENC:1,2,3"])
 def test_encoder_parser_rejects_invalid_data(line):
     assert SerialBridge.parse_encoders(line) is None
+
+
+def test_turn_status_protocol():
+    fake = FakeSerialPort([b"TURN_DONE:90.2\r\n", b"TURN:DONE\r\n"])
+    bridge = make_bridge(fake)
+    assert bridge.get_turn_status() == "DONE"
+    assert fake.writes == [b"TURN_STATUS\n"]
+
+
+@pytest.mark.parametrize("line", ["", "TURN:MAYBE", "TURN_DONE:90"])
+def test_turn_status_parser_rejects_invalid_data(line):
+    assert SerialBridge.parse_turn_status(line) is None
 
 
 def test_write_failure_is_reported_without_crashing_controller():

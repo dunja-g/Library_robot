@@ -30,16 +30,20 @@ class GridController:
         obstacle_distance_cm: float = 20.0,
         destination_dwell_seconds: float = 5.0,
         encoder_stall_seconds: float = 2.0,
+        turn_source: str = "encoder",
         clock=time.monotonic,
     ):
         if obstacle_distance_cm <= 0 or encoder_stall_seconds <= 0:
             raise ValueError("Safety distance and encoder stall timeout must be positive")
         if destination_dwell_seconds < 0:
             raise ValueError("Destination dwell must be non-negative")
+        if turn_source not in {"encoder", "imu"}:
+            raise ValueError("turn_source must be 'encoder' or 'imu'")
         self.serial = serial_bridge
         self.obstacle_distance_cm = float(obstacle_distance_cm)
         self.destination_dwell_seconds = float(destination_dwell_seconds)
         self.encoder_stall_seconds = float(encoder_stall_seconds)
+        self.turn_source = turn_source
         self._clock = clock
         self._lock = threading.RLock()
         self.state = GridState.IDLE
@@ -127,6 +131,13 @@ class GridController:
                     return
                 if not self._safety_clear():
                     return
+                step = self._current_step()
+                if step is None:
+                    self._safe_stop("route_state_error")
+                    return
+                if self.state == GridState.TURNING and self.turn_source == "imu":
+                    self._step_imu_turn()
+                    return
                 encoders = self.serial.get_encoders()
                 if not self._valid_encoders(encoders):
                     self._safe_stop("encoder_unavailable")
@@ -137,10 +148,6 @@ class GridController:
                     abs(float(encoders["left"])),
                     abs(float(encoders["right"])),
                 )
-                step = self._current_step()
-                if step is None:
-                    self._safe_stop("route_state_error")
-                    return
                 if progress >= float(step["target_ticks"]):
                     self.serial.send_stop()
                     self.step_index += 1
@@ -170,6 +177,13 @@ class GridController:
         step = self._current_step()
         if step is None:
             raise RuntimeError("No grid route step is available")
+        if (
+            self.turn_source == "imu"
+            and step["action"] in {"TURN_LEFT", "TURN_RIGHT", "UTURN"}
+        ):
+            self.state = GridState.TURNING
+            self._send_imu_turn(step["action"])
+            return
         if not self.serial.reset_encoders():
             self._safe_stop("encoder_reset_failed")
             return
@@ -181,6 +195,32 @@ class GridController:
             else GridState.MOVING
         )
         self._send_action(step["action"])
+
+    def _send_imu_turn(self, action: str) -> None:
+        if action == "TURN_LEFT":
+            sent = self.serial.send_turn_left()
+        elif action == "TURN_RIGHT":
+            sent = self.serial.send_turn_right()
+        else:
+            sent = self.serial.send_turn_uturn()
+        if not sent:
+            self._safe_stop("imu_turn_command_failed")
+
+    def _step_imu_turn(self) -> None:
+        status = self.serial.get_turn_status()
+        if status == "ACTIVE":
+            return
+        if status == "DONE":
+            self.serial.send_stop()
+            self.step_index += 1
+            if self.step_index >= len(self._current_steps()):
+                self._complete_phase()
+            else:
+                self._start_current_step()
+            return
+        self._safe_stop(
+            "imu_turn_error" if status in {"ERROR", "IDLE"} else "imu_unavailable"
+        )
 
     def _complete_phase(self) -> None:
         if self.phase == "OUTBOUND":

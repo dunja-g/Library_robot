@@ -34,6 +34,9 @@ USE_MOCK = os.getenv("LIBRARY_ROBOT_USE_MOCK", "true").lower() in {
     "1", "true", "yes", "on"
 }
 NAVIGATION_MODE = os.getenv("LIBRARY_ROBOT_NAVIGATION_MODE", "aruco").strip().lower()
+GRID_TURN_SOURCE = os.getenv(
+    "LIBRARY_ROBOT_GRID_TURN_SOURCE", "imu"
+).strip().lower()
 if NAVIGATION_MODE not in {"aruco", "grid"}:
     raise ValueError("LIBRARY_ROBOT_NAVIGATION_MODE must be 'aruco' or 'grid'")
 grid_geometry = GridGeometry.from_env()
@@ -218,6 +221,7 @@ else:
             encoder_stall_seconds=float(
                 os.getenv("LIBRARY_ROBOT_ENCODER_STALL_SECONDS", "2")
             ),
+            turn_source=GRID_TURN_SOURCE,
         )
     else:
         detector = ArucoDetector(min_area_px=config.min_marker_area_px)
@@ -286,10 +290,11 @@ def navigation_mode():
         {
             "mode": NAVIGATION_MODE,
             "grid_configured": not (
-                grid_geometry.missing_fields or encoder_calibration.missing_fields
+                grid_geometry.missing_fields
+                or encoder_calibration.missing_fields_for(GRID_TURN_SOURCE)
             ),
             "missing": grid_geometry.missing_fields
-            + encoder_calibration.missing_fields,
+            + encoder_calibration.missing_fields_for(GRID_TURN_SOURCE),
         }
     )
 
@@ -334,7 +339,12 @@ def request_box():
     data = request.get_json(silent=True) or {}
     box_id = str(data.get("box_id", "")).strip()
     try:
-        plan = build_grid_route(box_id, grid_geometry, encoder_calibration)
+        plan = build_grid_route(
+            box_id,
+            grid_geometry,
+            encoder_calibration,
+            turn_source=GRID_TURN_SOURCE,
+        )
     except ValueError as exc:
         status_code = 503 if "not calibrated" in str(exc) else 400
         return jsonify({"status": "error", "message": str(exc)}), status_code
