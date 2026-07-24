@@ -46,6 +46,7 @@
       <button class="profile-icon" type="button" aria-label="User profile">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c.6-4.1 3-6.2 7-6.2s6.4 2.1 7 6.2"/></svg>
       </button>
+      <span class="student-badge" id="student-badge" style="display: none;"></span>
       <span class="mode-chip" id="connection-badge">&bull; Fixed Grid</span>
     </div>
   </header>
@@ -109,8 +110,33 @@
 
   <!-- Level 5: Main Content Area -->
   <main class="dashboard">
+    <!-- Student Check-In Panel -->
+    <section id="checkin-panel" class="panel card--primary checkin-panel-container">
+      <div class="panel-heading"><h2>🪪 Student Check-In</h2></div>
+      <div class="checkin-body">
+        <div class="checkin-camera-wrapper">
+          <img src="/video_feed" class="checkin-camera" alt="Camera feed" onerror="this.src='/static/library_aisle.svg'" />
+          <div class="checkin-scanning"></div>
+        </div>
+        <p>Hold your student ID card in front of the robot camera...</p>
+        <div class="manual-checkin-row">
+          <input id="manual-student-id" type="text" placeholder="e.g. LIBSTU-S001" />
+          <button type="button" class="secondary-btn manual-btn" onclick="manualCheckin()">Check In</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Return Book Panel -->
+    <section id="return-panel" class="panel card--primary return-panel-container" style="display: none;">
+      <div class="panel-heading"><h2>Return Book</h2></div>
+      <div class="return-body">
+        <p>You have borrowed: <strong id="borrowed-book-title"></strong></p>
+        <button class="primary-btn" type="button" onclick="returnBook()" style="max-width: 250px;">Return Book</button>
+      </div>
+    </section>
+
     <!-- Left Column: Book Detail Panel (Level 6 Card) -->
-    <section class="panel book-panel card--primary">
+    <section id="book-panel" class="panel book-panel card--primary" style="display: none;">
       <div class="book-overview">
         <!-- O'REILLY Deep Learning Book Cover Image -->
         <div class="book-cover-wrap">
@@ -155,7 +181,7 @@
     </section>
 
     <!-- Middle Column: Workspace (Mission Strip + Map + Task) -->
-    <section class="workspace">
+    <section id="workspace-panel" class="workspace" style="display: none;">
       <!-- Level 4: Separate Light-Blue Elevated Mission Progress Band -->
       <div class="journey-strip mission-strip" aria-label="Journey progress">
         <div class="journey-step done" id="journey-search">
@@ -281,6 +307,23 @@
         <div class="status-message"><span id="status-icon">&bull;</span><div><b id="status-state">IDLE</b><small id="status-desc">Enter a book to begin</small></div></div>
         <div id="reason-text" class="reason-text"></div>
         <button id="reset-btn" class="danger-btn compact" type="button" onclick="resetRobot()">Emergency Stop &amp; Reset</button>
+      </section>
+
+      <section id="student-portal" class="panel">
+        <div class="panel-heading"><h2>👥 Student Portal</h2></div>
+        <div class="portal-body">
+          <table class="student-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="student-portal-tbody">
+              <!-- populated by JS -->
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section class="panel trending-panel">

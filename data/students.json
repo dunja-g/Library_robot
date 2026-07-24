@@ -1,0 +1,5 @@
+[
+  {"id": "S001", "name": "Alice Tan",  "qr_code": "LIBSTU-S001", "borrowed_book_id": null, "borrowed_at": null},
+  {"id": "S002", "name": "Bob Lim",   "qr_code": "LIBSTU-S002", "borrowed_book_id": null, "borrowed_at": null},
+  {"id": "S003", "name": "Carol Ng",  "qr_code": "LIBSTU-S003", "borrowed_book_id": null, "borrowed_at": null}
+]

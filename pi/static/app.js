@@ -64,6 +64,7 @@ let currentState = 'IDLE';
 let currentLanguage = localStorage.getItem('smartLibraryLanguage') || 'en';
 let toastTimeout = null;
 let searchTimer = null;
+window.currentStudent = null;
 
 window.addEventListener('DOMContentLoaded', () => {
   const input = document.getElementById('book-search');
@@ -77,7 +78,10 @@ window.addEventListener('DOMContentLoaded', () => {
   applyLanguage();
   loadCatalogue();
   pollStatus();
-  window.setInterval(pollStatus, 700);
+  window.setInterval(pollStatus, 1000);
+  initCheckin();
+  loadStudentPortal();
+  window.setInterval(loadStudentPortal, 5000);
 });
 
 async function loadCatalogue() {
@@ -276,6 +280,11 @@ function updateMap(box) {
 }
 
 async function sendRobot() {
+  if (!window.currentStudent) {
+    showToast('Please check in first');
+    return;
+  }
+
   const typedQuery = document.getElementById('book-search').value.trim();
   const selectedMatchesInput = selectedBook && (
     [selectedBook.title, selectedBook.book_id, selectedBook.location_code]
@@ -290,18 +299,21 @@ async function sendRobot() {
   const button = document.getElementById('send-btn');
   button.disabled = true;
   try {
-    const response = await fetch('/request_book', {
+    const response = await fetch('/api/borrow', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({ student_id: window.currentStudent.id, book_query: query }),
     });
     const data = await response.json();
-    if (!response.ok) {
+    if (!response.ok || !data.ok) {
       showToast(data.message || 'Unable to start this route');
       return;
     }
+    // Update local object structure based on backend spec or map to existing if needed
+    // Usually the response includes `book` which has book_code/location_code
+    const bookInfo = data.book || data;
     const matchingBook = catalogue.find(book =>
-      book.book_id === data.book_code || book.location_code === data.location_code
+      book.book_id === bookInfo.book_code || book.location_code === bookInfo.location_code
     );
     if (matchingBook) selectBook(matchingBook);
     document.getElementById('book-search').value = data.title;
@@ -373,6 +385,15 @@ function updateUI(data) {
     );
     if (missionBook) selectBook(missionBook);
     document.getElementById('camera-target').textContent = data.box_id;
+  }
+  
+  if (data.current_student && !window.currentStudent) {
+    onStudentCheckedIn(data.current_student);
+  } else if (!data.current_student && window.currentStudent) {
+    window.currentStudent = null;
+    document.getElementById('student-badge').style.display = 'none';
+    document.querySelector('.profile-icon').style.display = 'flex';
+    initCheckin();
   }
 
   const telemetry = data.telemetry || {};
@@ -481,3 +502,101 @@ function showToast(message) {
   clearTimeout(toastTimeout);
   toastTimeout = window.setTimeout(() => toast.classList.remove('show'), 3500);
 }
+
+// Student Check-In and Portal logic
+function initCheckin() {
+  document.getElementById('checkin-panel').style.display = 'block';
+  document.getElementById('book-panel').style.display = 'none';
+  document.getElementById('workspace-panel').style.display = 'none';
+  document.getElementById('return-panel').style.display = 'none';
+}
+
+async function manualCheckin() {
+  const qrCode = document.getElementById('manual-student-id').value.trim();
+  if (!qrCode) return;
+  try {
+    const res = await fetch('/api/checkin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ qr_code: qrCode })
+    });
+    const data = await res.json();
+    if (data.ok && data.student) {
+      onStudentCheckedIn(data.student);
+    } else {
+      showToast('Check-in failed');
+    }
+  } catch (err) {
+    showToast('Error connecting to check-in');
+  }
+}
+
+function onStudentCheckedIn(student) {
+  if (window.currentStudent && window.currentStudent.id === student.id) return;
+  window.currentStudent = student;
+  
+  document.getElementById('checkin-panel').style.display = 'none';
+  
+  showToast(`Welcome, ${student.name}!`);
+  
+  const badge = document.getElementById('student-badge');
+  badge.textContent = student.name;
+  badge.style.display = 'inline-block';
+  document.querySelector('.profile-icon').style.display = 'none';
+
+  if (student.has_book) {
+    document.getElementById('return-panel').style.display = 'block';
+    document.getElementById('borrowed-book-title').textContent = student.borrowed_book_id || 'A book';
+    document.getElementById('book-panel').style.display = 'none';
+    document.getElementById('workspace-panel').style.display = 'none';
+  } else {
+    document.getElementById('return-panel').style.display = 'none';
+    document.getElementById('book-panel').style.display = 'block';
+    document.getElementById('workspace-panel').style.display = 'block';
+  }
+}
+
+async function returnBook() {
+  if (!window.currentStudent) return;
+  try {
+    const res = await fetch('/api/return_book', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ student_id: window.currentStudent.id })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast(`Book returned successfully`);
+      window.currentStudent = null;
+      document.getElementById('student-badge').style.display = 'none';
+      document.querySelector('.profile-icon').style.display = 'flex';
+      initCheckin();
+    } else {
+      showToast('Return failed');
+    }
+  } catch (err) {
+    showToast('Error connecting to server');
+  }
+}
+
+async function loadStudentPortal() {
+  try {
+    const res = await fetch('/api/students');
+    const students = await res.json();
+    const tbody = document.getElementById('student-portal-tbody');
+    tbody.innerHTML = '';
+    students.forEach(st => {
+      const tr = document.createElement('tr');
+      const statusClass = st.has_book ? 'status-borrowed' : 'status-available';
+      const statusText = st.has_book ? 'Borrowed' : 'Available';
+      tr.innerHTML = `
+        <td>${st.name}</td>
+        <td class="${statusClass}">${statusText}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  } catch (err) {
+    console.warn('Could not load student portal', err);
+  }
+}
+
