@@ -18,6 +18,7 @@ try:
         get_all_students,
         get_student_by_id,
         get_student_by_qr,
+        get_borrower_for_book,
         rollback_borrow_book,
     )
     from .book_db import (
@@ -36,6 +37,7 @@ except ImportError:  # Supports ``python pi/app.py``.
         get_all_students,
         get_student_by_id,
         get_student_by_qr,
+        get_borrower_for_book,
         rollback_borrow_book,
     )
     from book_db import find_book, get_all_books, get_book, search_books
@@ -430,6 +432,8 @@ def _start_borrowing_mission(
         book = _resolve_book(book_query)
         if book is None:
             return {"ok": False, "message": "Book not found"}, 404
+        if get_borrower_for_book(book["book_id"]) is not None:
+            return {"ok": False, "message": "Book is already borrowed"}, 409
         try:
             plan = _build_borrowing_plan(book)
         except ValueError as exc:
@@ -497,9 +501,11 @@ def status():
 @app.route("/reset", methods=["POST"])
 def reset():
     with _mission_lock:
+        mission = _current_borrowing_mission
         _cancel_pending_mission("reset")
         controller.reset()
-        _set_current_student(None)
+        if mission is None or mission.state != BorrowingState.CONFIRMED:
+            _set_current_student(None)
     return jsonify({"status": "ok"})
 
 

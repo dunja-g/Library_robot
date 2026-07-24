@@ -68,6 +68,15 @@ def get_student_by_id(student_id: str) -> dict | None:
             return student
     return None
 
+
+def get_borrower_for_book(book_id: str) -> dict | None:
+    """Return the student currently borrowing ``book_id``, if any."""
+    students = get_all_students()
+    for student in students:
+        if student.get("borrowed_book_id") == book_id:
+            return student
+    return None
+
 def borrow_book(student_id: str, book_id: str) -> dict:
     """
     Mark a student as having borrowed a book.
@@ -76,6 +85,11 @@ def borrow_book(student_id: str, book_id: str) -> dict:
     """
     with _db_lock:
         students = _get_all_students_no_lock()
+        if any(
+            student.get("borrowed_book_id") == book_id
+            for student in students
+        ):
+            return {"ok": False, "reason": "book_unavailable"}
         for student in students:
             if student.get("id") == student_id:
                 if student.get("borrowed_book_id"):

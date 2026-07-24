@@ -308,3 +308,36 @@ def test_database_write_is_rolled_back_if_return_cannot_start(
     assert response.status_code == 503
     assert module._get_current_mission().state.value == "pending"
     assert module.get_student_by_id("S001")["borrowed_book_id"] is None
+
+
+def test_unavailable_book_is_rejected_before_mission_creation(
+    monkeypatch, tmp_path
+):
+    module, client = load_mock_app(monkeypatch, tmp_path)
+    assert module.borrow_book("S002", "BK001") == {"ok": True}
+    check_in(client)
+
+    response = client.post(
+        "/api/borrow",
+        json={"student_id": "S001", "book_query": "BK001"},
+    )
+
+    assert response.status_code == 409
+    assert module._get_current_mission() is None
+    assert module.controller.get_state() == "IDLE"
+
+
+def test_reset_after_confirmation_preserves_loan_and_session(
+    monkeypatch, tmp_path
+):
+    module, client = load_mock_app(monkeypatch, tmp_path)
+    start_pending_mission(module, client)
+    reach_destination(module)
+    assert client.post("/api/confirm_pickup", json={}).status_code == 200
+
+    assert client.post("/reset").status_code == 200
+
+    status = client.get("/status").get_json()
+    assert status["current_student"]["id"] == "S001"
+    assert status["borrowing_mission"]["state"] == "confirmed"
+    assert module.get_student_by_id("S001")["borrowed_book_id"] == "BK001"
