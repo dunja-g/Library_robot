@@ -173,8 +173,9 @@ if __name__ == "__main__":
 
     print("\n=======================================================")
     print(" 📷 Standalone Camera Test Server Starting...")
-    print(" Access in browser: http://localhost:5000 or http://<pi-ip>:5000")
+    print(" Access in browser: http://localhost:5001 or http://<pi-ip>:5001")
     print(" Press Ctrl+C to stop.")
     print("=======================================================\n")
 
-    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
+    app.run(host="0.0.0.0", port=5001, debug=False, threaded=True)
+
