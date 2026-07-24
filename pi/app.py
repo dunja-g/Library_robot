@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 try:
+    from .student_db import get_all_students, get_student_by_qr, get_student_by_id, borrow_book, return_book
     from .book_db import (
         find_book,
         get_all_books,
@@ -20,10 +21,13 @@ try:
     )
     from .encoder_navigation import GridController
     from .grid_layout import EncoderCalibration, GridGeometry, build_grid_route
+    from .qr_scanner import QRScanner
 except ImportError:  # Supports ``python pi/app.py``.
+    from student_db import get_all_students, get_student_by_qr, get_student_by_id, borrow_book, return_book
     from book_db import find_book, get_all_books, get_book, search_books
     from encoder_navigation import GridController
     from grid_layout import EncoderCalibration, GridGeometry, build_grid_route
+    from qr_scanner import QRScanner
 
 
 logging.basicConfig(level=logging.INFO)
@@ -52,6 +56,19 @@ GRID_TURN_SOURCE = os.getenv(
 ).strip().lower()
 grid_geometry = GridGeometry.from_env()
 encoder_calibration = EncoderCalibration.from_env()
+
+# --- Student session state (set by QR scanner, cleared when robot docks) ---
+_session_lock = threading.Lock()
+_current_student: dict | None = None  # The checked-in student dict
+
+def _set_current_student(student: dict | None) -> None:
+    global _current_student
+    with _session_lock:
+        _current_student = student
+
+def _get_current_student() -> dict | None:
+    with _session_lock:
+        return _current_student
 
 
 if USE_MOCK:
@@ -193,6 +210,25 @@ else:
         turn_source=GRID_TURN_SOURCE,
     )
 
+    def _on_qr_detected(qr_code: str) -> None:
+        """Called from the QR scanner thread when a student ID is scanned."""
+        try:
+            from .student_db import get_student_by_qr
+        except ImportError:
+            from student_db import get_student_by_qr
+        student = get_student_by_qr(qr_code)
+        if student is None:
+            logger.info("Unknown QR code scanned: %s", qr_code)
+            return
+        logger.info("Student checked in via QR: %s (%s)", student['name'], student['id'])
+        _set_current_student(student)
+
+    qr_scanner = QRScanner(
+        frame_provider=camera.get_frame,
+        on_detect=_on_qr_detected,
+    )
+    qr_scanner.start()
+
     def _shutdown_hardware():
         try:
             controller.reset()
@@ -207,6 +243,12 @@ def _control_loop():
     while True:
         try:
             controller.step()
+            # Auto-clear student session once the robot has returned to dock
+            if controller.get_state() in ("DOCKED", "IDLE") and _get_current_student() is not None:
+                # Only clear if no active mission
+                if controller.get_status().get("phase") is None:
+                    _set_current_student(None)
+                    logger.info("Student session cleared after robot docked")
         except Exception:
             logger.exception("Robot control loop failed; controller stopped safely")
         time.sleep(0.1 if USE_MOCK else 1.0 / config.control_hz)
@@ -321,13 +363,122 @@ def request_book():
 
 @app.route("/status")
 def status():
-    return jsonify(controller.get_status())
+    data = controller.get_status()
+    student = _get_current_student()
+    data["current_student"] = {
+        "id": student["id"],
+        "name": student["name"],
+        "has_book": student["borrowed_book_id"] is not None,
+        "borrowed_book_id": student["borrowed_book_id"],
+    } if student else None
+    return jsonify(data)
 
 
 @app.route("/reset", methods=["POST"])
 def reset():
     controller.reset()
     return jsonify({"status": "ok"})
+
+
+@app.route("/api/students", methods=["GET"])
+def api_students():
+    students = get_all_students()
+    for s in students:
+        s["has_book"] = s.get("borrowed_book_id") is not None
+    return jsonify(students)
+
+
+@app.route("/api/checkin", methods=["POST"])
+def api_checkin():
+    data = request.get_json(silent=True) or {}
+    qr_code = data.get("qr_code")
+    if not qr_code:
+        return jsonify({"ok": False, "message": "Missing qr_code"}), 400
+    student = get_student_by_qr(qr_code)
+    if not student:
+        return jsonify({"ok": False, "message": "Student not found"}), 404
+    student_resp = dict(student)
+    student_resp["has_book"] = student_resp.get("borrowed_book_id") is not None
+    return jsonify({"ok": True, "student": student_resp}), 200
+
+
+@app.route("/api/borrow", methods=["POST"])
+def api_borrow():
+    data = request.get_json(silent=True) or {}
+    student_id = data.get("student_id")
+    book_query = data.get("book_query")
+    if not student_id or not book_query:
+        return jsonify({"ok": False, "message": "Missing student_id or book_query"}), 400
+
+    book = _resolve_book(book_query)
+    if not book:
+        return jsonify({"ok": False, "message": "Book not found"}), 404
+
+    borrow_res = borrow_book(student_id, book["book_id"])
+    if not borrow_res.get("ok"):
+        return jsonify(borrow_res), 409
+
+    try:
+        plan = build_grid_route(
+            book["box_id"],
+            grid_geometry,
+            encoder_calibration,
+            turn_source=GRID_TURN_SOURCE,
+        )
+    except ValueError as exc:
+        status_code = 503 if "not calibrated" in str(exc) else 400
+        return jsonify({"ok": False, "message": str(exc)}), status_code
+
+    plan.update(
+        book=book["title"],
+        book_code=book["book_id"],
+        location_code=book.get("location_code", ""),
+        layer=book.get("layer"),
+        position=book.get("position"),
+    )
+    controller.request_grid_mission(plan)
+    
+    return jsonify({
+        "ok": True,
+        "book": {
+            "title": book["title"],
+            "book_id": book["book_id"],
+            "location_code": book.get("location_code", "")
+        }
+    }), 200
+
+
+@app.route("/api/return_book", methods=["POST"])
+def api_return_book():
+    data = request.get_json(silent=True) or {}
+    student_id = data.get("student_id")
+    if not student_id:
+        return jsonify({"ok": False, "message": "Missing student_id"}), 400
+
+    return_res = return_book(student_id)
+    if not return_res.get("ok"):
+        return jsonify({"ok": False, "message": "No book to return"}), 400
+
+    returned_book_id = return_res["book_id"]
+    return_box = os.getenv("LIBRARY_ROBOT_RETURN_SLOT", "1A")
+
+    try:
+        plan = build_grid_route(
+            return_box,
+            grid_geometry,
+            encoder_calibration,
+            turn_source=GRID_TURN_SOURCE,
+        )
+        plan.update(
+            book="RETURN",
+            book_code=returned_book_id,
+            location_code=return_box,
+        )
+        controller.request_grid_mission(plan)
+    except Exception as e:
+        logger.error(f"Failed to route to return slot: {e}")
+
+    return jsonify({"ok": True, "returned_book_id": returned_book_id}), 200
 
 
 if __name__ == "__main__":
