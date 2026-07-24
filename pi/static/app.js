@@ -67,36 +67,24 @@ let searchTimer = null;
 window.currentStudent = null;
 window.currentMission = null;
 
-function initFastCameraStream() {
+function syncCameraStream() {
   const checkinFeed = document.querySelector('.checkin-camera');
   const liveFeed = document.getElementById('camera-feed');
+  const checkinPanel = document.getElementById('checkin-panel');
+  const pageVisible = !document.hidden;
+  const checkinVisible = checkinPanel && checkinPanel.style.display !== 'none';
+  const activeFeed = pageVisible ? (checkinVisible ? checkinFeed : liveFeed) : null;
 
-  function fetchNextFrame() {
-    if (document.hidden) {
-      setTimeout(fetchNextFrame, 500);
-      return;
+  [checkinFeed, liveFeed].forEach(feed => {
+    if (!feed) return;
+    if (feed === activeFeed) {
+      if (feed.getAttribute('src') !== '/video_feed') {
+        feed.src = '/video_feed';
+      }
+    } else {
+      feed.removeAttribute('src');
     }
-    const checkinPanel = document.getElementById('checkin-panel');
-    const checkinVisible = checkinPanel && checkinPanel.style.display !== 'none';
-    const activeFeed = checkinVisible ? checkinFeed : liveFeed;
-
-    if (!activeFeed) {
-      setTimeout(fetchNextFrame, 200);
-      return;
-    }
-
-    const nextImg = new Image();
-    nextImg.onload = () => {
-      activeFeed.src = nextImg.src;
-      setTimeout(fetchNextFrame, 50);
-    };
-    nextImg.onerror = () => {
-      setTimeout(fetchNextFrame, 300);
-    };
-    nextImg.src = `/api/latest_frame.jpg?t=${Date.now()}`;
-  }
-
-  fetchNextFrame();
+  });
 }
 
 window.addEventListener('DOMContentLoaded', () => {
@@ -113,10 +101,12 @@ window.addEventListener('DOMContentLoaded', () => {
   pollStatus();
   window.setInterval(pollStatus, 1000);
   initCheckin();
-  initFastCameraStream();
+  syncCameraStream();
+  document.addEventListener('visibilitychange', syncCameraStream);
   loadStudentPortal();
   window.setInterval(loadStudentPortal, 5000);
 });
+
 
 
 async function loadCatalogue() {

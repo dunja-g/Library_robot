@@ -136,37 +136,31 @@ def index_page():
         <h2>📷 Standalone Camera Test Feed</h2>
         <div class="info">
             Backend: <b style="color:#4ade80">{stats['backend']}</b> &nbsp;|&nbsp; 
-            FPS: <b id="fps-val" style="color:#facc15">{stats['fps']}</b>
+            Hardware FPS: <b id="fps-val" style="color:#facc15">{stats['fps']}</b>
         </div>
-        <img id="test-feed" src="/api/frame.jpg" alt="Camera Feed" />
-        <script>
-            // Zero-latency fast sequential loader
-            const img = document.getElementById('test-feed');
-            function loadFrame() {{
-                const next = new Image();
-                next.onload = () => {{
-                    img.src = next.src;
-                    setTimeout(loadFrame, 30); // ~30fps max refresh
-                }};
-                next.onerror = () => setTimeout(loadFrame, 200);
-                next.src = '/api/frame.jpg?t=' + Date.now();
-            }}
-            loadFrame();
-        </script>
+        <img id="test-feed" src="/video_feed" alt="Camera Feed" />
     </body>
     </html>
     """
 
 
-@app.route("/api/frame.jpg")
-def single_frame():
-    with frame_lock:
-        data = latest_jpeg
-    if data is None:
-        return Response(status=204)
-    res = Response(data, mimetype="image/jpeg")
-    res.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    return res
+@app.route("/video_feed")
+def video_feed():
+    def generate():
+        last_data = None
+        while True:
+            with frame_lock:
+                data = latest_jpeg
+            if data is not None and data is not last_data:
+                last_data = data
+                yield (
+                    b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
+                    + data
+                    + b"\r\n"
+                )
+            time.sleep(0.02)
+    return Response(generate(), mimetype="multipart/x-mixed-replace; boundary=frame")
+
 
 
 if __name__ == "__main__":
