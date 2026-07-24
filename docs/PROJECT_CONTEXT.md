@@ -1,4 +1,7 @@
-# Project Context
+# Project Context — Historical Reference
+
+> Current runtime: borrowing-only student QR identification and marker-free
+> fixed-grid navigation. Earlier ArUco and RL notes below are not active code.
 
 本文件记录团队已经确认的项目事实和外部参考，供后续开发、评审和 Codex 任务持续使用。
 

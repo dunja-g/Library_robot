@@ -21,11 +21,14 @@ def test_firmware_contains_full_serial_protocol():
         "STOP",
         "CHECK",
         "ENCODER",
+        "ODOMETRY",
         "ENC_RESET",
+        "SET_FUSION:",
     ):
         assert f'"{command}"' in FIRMWARE
     assert 'Serial.print("US:")' in FIRMWARE
     assert 'Serial.print("ENC:")' in FIRMWARE
+    assert 'Serial.print("ODOM:")' in FIRMWARE
     assert "Serial.begin(115200)" in FIRMWARE
 
 
@@ -62,3 +65,15 @@ def test_firmware_integrates_person1_imu_turns_without_blocking_loop():
     assert "IMU_TURN_TIMEOUT_MS = 5000" in FIRMWARE
     assert "while (abs(angle)" not in FIRMWARE
     assert 'Serial.print("TURN:")' in FIRMWARE
+
+
+def test_firmware_fuses_heading_and_closes_straight_line_speed_loop():
+    assert "headingEncoderDeg" in FIRMWARE
+    assert "headingImuDeg += rate * dt" in FIRMWARE
+    assert (
+        "fusionAlpha * headingImuDeg + (1.0 - fusionAlpha) * headingEncoderDeg"
+        in FIRMWARE
+    )
+    assert "applyStraightClosedLoop();" in FIRMWARE
+    assert "leftEncoderDirection * leftSnapshot / leftTicksPerCm" in FIRMWARE
+    assert "rightEncoderDirection * rightSnapshot / rightTicksPerCm" in FIRMWARE

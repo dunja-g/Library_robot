@@ -116,6 +116,44 @@ def test_encoder_reset_and_read_protocol():
     assert fake.writes == [b"ENC_RESET\n", b"ENCODER\n"]
 
 
+def test_fused_odometry_configuration_and_telemetry_protocol():
+    fake = FakeSerialPort(
+        [b"FUSION:OK\r\n", b"ODOM:12,11,6.0,5.5,-2.1,-1.8,-1.815,4\r\n"]
+    )
+    bridge = make_bridge(fake)
+
+    assert bridge.set_fusion_config(
+        alpha=0.95,
+        left_ticks_per_cm=2.0,
+        right_ticks_per_cm=2.0,
+        wheel_track_cm=14.5,
+        heading_kp=2.0,
+        max_correction=40,
+    )
+    assert bridge.get_odometry() == {
+        "left": 12,
+        "right": 11,
+        "left_cm": 6.0,
+        "right_cm": 5.5,
+        "heading_encoder_deg": -2.1,
+        "heading_imu_deg": -1.8,
+        "heading_fused_deg": -1.815,
+        "speed_correction": 4,
+    }
+    assert fake.writes == [
+        b"SET_FUSION:0.9500,2.000000,2.000000,14.500,2.000,40\n",
+        b"ODOMETRY\n",
+    ]
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["", "ODOM:1,2", "ODOM:1,2,3,4,5,6,nan,8", "ODOM:a,2,3,4,5,6,7,8"],
+)
+def test_odometry_parser_rejects_invalid_data(line):
+    assert SerialBridge.parse_odometry(line) is None
+
+
 @pytest.mark.parametrize("line", ["", "ENC:1", "ENC:1,two", "ENC:1,2,3"])
 def test_encoder_parser_rejects_invalid_data(line):
     assert SerialBridge.parse_encoders(line) is None

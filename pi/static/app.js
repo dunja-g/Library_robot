@@ -9,7 +9,7 @@ const STATE_CONFIG = {
   STOPPED: { icon: '!', label: 'Stopped', colour: '#dc2626', desc: 'Safety stop — inspect the robot' },
 };
 
-const ROW_Y = { 4: 55, 3: 150, 2: 250, 1: 350 };
+const ROW_Y = { 3: 82, 2: 215, 1: 348 };
 const COL_X = { A: 70, B: 270 };
 const ACTIVE_STATES = new Set(['MOVING', 'TURNING', 'ARRIVED', 'DWELLING', 'RETURNING']);
 const SEARCH_ALIASES = {
@@ -65,6 +65,7 @@ let currentLanguage = localStorage.getItem('smartLibraryLanguage') || 'en';
 let toastTimeout = null;
 let searchTimer = null;
 window.currentStudent = null;
+window.currentMission = null;
 
 window.addEventListener('DOMContentLoaded', () => {
   const input = document.getElementById('book-search');
@@ -267,7 +268,7 @@ function updateMap(box) {
   document.querySelectorAll('.shelf-box').forEach(element => {
     element.classList.toggle('target', element.dataset.box === box);
   });
-  const match = /^([1-4])([AB])$/.exec(box);
+  const match = /^([1-3])([AB])$/.exec(box);
   if (!match) return;
   const targetY = ROW_Y[Number(match[1])];
   const targetX = COL_X[match[2]];
@@ -313,11 +314,12 @@ async function sendRobot() {
     // Usually the response includes `book` which has book_code/location_code
     const bookInfo = data.book || data;
     const matchingBook = catalogue.find(book =>
-      book.book_id === bookInfo.book_code || book.location_code === bookInfo.location_code
+      book.book_id === bookInfo.book_id || book.location_code === bookInfo.location_code
     );
     if (matchingBook) selectBook(matchingBook);
-    document.getElementById('book-search').value = data.title;
-    showToast(`Robot dispatched to ${data.location_code}`);
+    window.currentMission = data.mission || null;
+    document.getElementById('book-search').value = bookInfo.title;
+    showToast(`Borrowing mission created for ${bookInfo.location_code}`);
     await pollStatus();
   } catch (_) {
     showToast('Failed to start the route');
@@ -357,7 +359,9 @@ function updateUI(data) {
   const state = data.state || 'IDLE';
   const previous = currentState;
   currentState = state;
-  const cfg = STATE_CONFIG[state] || STATE_CONFIG.IDLE;
+  const cfg = data.phase === 'RETURNING'
+    ? STATE_CONFIG.RETURNING
+    : STATE_CONFIG[state] || STATE_CONFIG.IDLE;
 
   document.getElementById('status-icon').textContent = cfg.icon;
   document.getElementById('status-state').textContent = state;
@@ -391,12 +395,27 @@ function updateUI(data) {
     if (!window.currentStudent || window.currentStudent.id !== data.current_student.id) {
       window.currentStudent = null; // force update
       onStudentCheckedIn(data.current_student);
+    } else {
+      window.currentStudent = data.current_student;
     }
   } else if (!data.current_student && window.currentStudent) {
     window.currentStudent = null;
+    window.currentMission = null;
     document.getElementById('student-badge').style.display = 'none';
     document.querySelector('.profile-icon').style.display = 'flex';
     initCheckin();
+  }
+
+  const mission = data.borrowing_mission || null;
+  const previousMissionState = window.currentMission?.state;
+  window.currentMission = mission;
+  updatePickupConfirmation(data, mission);
+  if (
+    mission
+    && mission.state === 'cancelled'
+    && previousMissionState !== 'cancelled'
+  ) {
+    showToast(`Mission cancelled: ${mission.cancel_reason || 'robot stopped'}`);
   }
 
   const telemetry = data.telemetry || {};
@@ -409,7 +428,7 @@ function updateUI(data) {
   document.getElementById('progress-percent').textContent = `${Math.round(progress)}%`;
   document.getElementById('progress-fill').style.width = `${progress}%`;
   updateSensorCards(telemetry);
-  updateTimeline(state);
+  updateTimeline(state, data.phase);
 
   document.getElementById('send-btn').disabled =
     ACTIVE_STATES.has(state) || !selectedBook;
@@ -427,14 +446,80 @@ function updateUI(data) {
   }
 }
 
+function updatePickupConfirmation(data, mission) {
+  const panel = document.getElementById('pickup-confirmation');
+  if (!panel) return;
+  const waiting = Boolean(
+    mission
+    && mission.state === 'pending'
+    && data.state === 'ARRIVED'
+    && data.pickup_confirmation_required
+  );
+  panel.hidden = !waiting;
+  if (!waiting) return;
+  document.getElementById('pickup-book-title').textContent = mission.book_title;
+  document.getElementById('pickup-location').textContent =
+    `Box ${mission.box_id} / Layer ${mission.layer} / Position ${mission.position}`;
+}
+
+async function confirmPickup() {
+  if (!window.currentMission) return;
+  const button = document.getElementById('confirm-pickup-btn');
+  button.disabled = true;
+  try {
+    const response = await fetch('/api/confirm_pickup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mission_id: window.currentMission.mission_id }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      showToast(data.message || 'Pickup confirmation failed');
+      return;
+    }
+    window.currentMission = data.mission;
+    showToast('Book borrowed. Robot is returning to Dock.');
+    await pollStatus();
+  } catch (_) {
+    showToast('Pickup confirmation is temporarily unavailable');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function cancelPendingMission() {
+  try {
+    const response = await fetch('/api/cancel_mission', { method: 'POST' });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      showToast(data.message || 'Mission could not be cancelled');
+      return;
+    }
+    window.currentMission = data.mission;
+    showToast('Pending borrowing mission cancelled');
+    await pollStatus();
+  } catch (_) {
+    showToast('Mission cancellation failed');
+  }
+}
+
 function updateSensorCards(telemetry) {
   const encoders = telemetry.encoders || {};
   setHealth('encoder-health', encoders.status || 'Waiting');
   document.getElementById('encoder-detail').textContent =
-    `L ${formatReading(encoders.left)} · R ${formatReading(encoders.right)}`;
+    encoders.distance_cm === null || encoders.distance_cm === undefined
+      ? `L ${formatReading(encoders.left)} · R ${formatReading(encoders.right)}`
+      : `${Number(encoders.distance_cm).toFixed(1)} cm · L ${formatReading(encoders.left)} · R ${formatReading(encoders.right)}`;
 
   const imu = telemetry.imu || {};
   setHealth('imu-health', imu.status || 'Ready');
+  const imuDetail = document.getElementById('imu-detail');
+  if (imuDetail) {
+    imuDetail.textContent = imu.heading_fused_deg === null
+      || imu.heading_fused_deg === undefined
+      ? 'IMU + encoders'
+      : `${Number(imu.heading_fused_deg).toFixed(1)}° · PWM ${formatReading(imu.speed_correction)}`;
+  }
 
   const ultrasonic = telemetry.ultrasonic || {};
   setHealth('ultrasonic-health', ultrasonic.status || 'Waiting');
@@ -453,7 +538,7 @@ function formatReading(value) {
   return value === null || value === undefined ? '—' : value;
 }
 
-function updateTimeline(state) {
+function updateTimeline(state, phase = null) {
   const ids = ['task-query', 'task-plan', 'task-navigate', 'task-arrive', 'task-return'];
   ids.forEach(id => document.getElementById(id).classList.remove('active', 'done'));
   const completeThrough = index => {
@@ -462,15 +547,15 @@ function updateTimeline(state) {
 
   if (state === 'IDLE' || state === 'STOPPED') {
     document.getElementById('task-query').classList.add('active');
+  } else if (phase === 'RETURNING' || state === 'RETURNING') {
+    completeThrough(3);
+    document.getElementById('task-return').classList.add('active');
   } else if (state === 'MOVING' || state === 'TURNING') {
     completeThrough(1);
     document.getElementById('task-navigate').classList.add('active');
   } else if (state === 'ARRIVED' || state === 'DWELLING') {
     completeThrough(2);
     document.getElementById('task-arrive').classList.add('active');
-  } else if (state === 'RETURNING') {
-    completeThrough(3);
-    document.getElementById('task-return').classList.add('active');
   } else if (state === 'DOCKED') {
     completeThrough(4);
   }
@@ -512,6 +597,8 @@ function initCheckin() {
   document.getElementById('book-panel').style.display = 'none';
   document.getElementById('workspace-panel').style.display = 'none';
   document.getElementById('return-panel').style.display = 'none';
+  const pickup = document.getElementById('pickup-confirmation');
+  if (pickup) pickup.hidden = true;
 }
 
 async function manualCheckin() {
@@ -556,29 +643,6 @@ function onStudentCheckedIn(student) {
     document.getElementById('return-panel').style.display = 'none';
     document.getElementById('book-panel').style.display = 'block';
     document.getElementById('workspace-panel').style.display = 'block';
-  }
-}
-
-async function returnBook() {
-  if (!window.currentStudent) return;
-  try {
-    const res = await fetch('/api/return_book', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ student_id: window.currentStudent.id })
-    });
-    const data = await res.json();
-    if (data.ok) {
-      showToast(`Book returned successfully`);
-      window.currentStudent = null;
-      document.getElementById('student-badge').style.display = 'none';
-      document.querySelector('.profile-icon').style.display = 'flex';
-      initCheckin();
-    } else {
-      showToast('Return failed');
-    }
-  } catch (err) {
-    showToast('Error connecting to server');
   }
 }
 

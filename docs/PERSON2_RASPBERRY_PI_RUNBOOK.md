@@ -1,4 +1,7 @@
-# Person 2 Raspberry Pi Runbook
+# Person 2 Raspberry Pi Runbook — Legacy Vision Diagnostics
+
+> The current borrowing runtime is fixed-grid and marker-free. ArUco commands
+> below are retained only for offline diagnostics.
 
 这份清单用于将已经通过离线测试的视觉与导航代码部署到树莓派，并与 Arduino Mega 真机联调。
 

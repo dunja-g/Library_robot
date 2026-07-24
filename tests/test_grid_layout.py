@@ -9,9 +9,11 @@ from pi.grid_layout import (
 )
 
 
-def test_all_eight_box_ids_are_available():
-    assert BOX_IDS == ("1A", "1B", "2A", "2B", "3A", "3B", "4A", "4B")
+def test_all_six_box_ids_are_available():
+    assert BOX_IDS == ("1A", "1B", "2A", "2B", "3A", "3B")
     assert normalize_box_id(" 3b ") == "3B"
+    with pytest.raises(ValueError, match="box_id"):
+        normalize_box_id("4A")
 
 
 def test_grid_route_is_generated_from_late_bound_dimensions():
@@ -26,7 +28,7 @@ def test_grid_route_is_generated_from_late_bound_dimensions():
         {"action": "FORWARD", "target_ticks": 350, "target_seconds": 0.0, "label": "Approach box 3B"},
     ]
     assert [step["action"] for step in route["return"]] == [
-        "UTURN", "FORWARD", "TURN_LEFT", "FORWARD"
+        "BACKWARD", "TURN_LEFT", "BACKWARD"
     ]
 
 
@@ -36,9 +38,9 @@ def test_a_and_b_use_mirrored_turns():
     a_route = build_grid_route("1A", geometry, calibration)
     b_route = build_grid_route("1B", geometry, calibration)
     assert a_route["outbound"][1]["action"] == "TURN_LEFT"
-    assert a_route["return"][2]["action"] == "TURN_RIGHT"
+    assert a_route["return"][1]["action"] == "TURN_RIGHT"
     assert b_route["outbound"][1]["action"] == "TURN_RIGHT"
-    assert b_route["return"][2]["action"] == "TURN_LEFT"
+    assert b_route["return"][1]["action"] == "TURN_LEFT"
 
 
 def test_unmeasured_layout_refuses_to_guess_a_route():

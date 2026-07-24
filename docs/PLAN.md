@@ -1,5 +1,8 @@
 # Library Robot V1 — Full Architecture & Design Plan
 
+> Historical document: the current borrowing MVP is marker-free fixed-grid
+> navigation. ArUco route scanning below is not loaded by `pi/app.py`.
+
 ## Overview
 
 A Raspberry Pi-powered 4-wheel robot that sits at a fixed docking position. A user on the same WiFi network opens a web page, selects one of 5 books from a dropdown, and the robot:

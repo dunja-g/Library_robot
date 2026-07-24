@@ -126,12 +126,12 @@
       </div>
     </section>
 
-    <!-- Return Book Panel -->
+    <!-- Existing loan status (borrowing-only MVP; returns are out of scope) -->
     <section id="return-panel" class="panel card--primary return-panel-container" style="display: none;">
-      <div class="panel-heading"><h2>Return Book</h2></div>
+      <div class="panel-heading"><h2>Borrowing Status</h2></div>
       <div class="return-body">
-        <p>You have borrowed: <strong id="borrowed-book-title"></strong></p>
-        <button class="primary-btn" type="button" onclick="returnBook()" style="max-width: 250px;">Return Book</button>
+        <p>This student already has an active loan: <strong id="borrowed-book-title"></strong></p>
+        <small>Return processing is not part of this borrowing-only station.</small>
       </div>
     </section>
 
@@ -267,6 +267,17 @@
             </li>
           </ol>
 
+          <div id="pickup-confirmation" class="pickup-confirmation" hidden>
+            <span class="pickup-eyebrow">Book ready for pickup</span>
+            <h3 id="pickup-book-title">Book located</h3>
+            <p id="pickup-location">Box -- / Layer -- / Position --</p>
+            <p>Please take the book, then confirm below. The loan is not recorded until confirmation.</p>
+            <div class="pickup-actions">
+              <button id="confirm-pickup-btn" class="primary-btn" type="button" onclick="confirmPickup()">I Took the Book</button>
+              <button id="cancel-mission-btn" class="secondary-btn" type="button" onclick="cancelPendingMission()">Cancel Mission</button>
+            </div>
+          </div>
+
           <!-- Distance Progress Sub-Card -->
           <div class="progress-subcard">
             <div class="progress-header">
@@ -300,7 +311,7 @@
         <div class="panel-heading"><h2 id="robot-status-heading">Robot Status</h2><span id="robot-state" class="state-pill">Navigating</span></div>
         <div class="sensor-grid">
           <div><span>Encoders</span><b id="encoder-health">OK</b><small id="encoder-detail">L 10000 &middot; R 10000</small></div>
-          <div><span>MPU6500</span><b id="imu-health">OK</b><small>Angle control</small></div>
+          <div><span>Fused Heading</span><b id="imu-health">OK</b><small id="imu-detail">IMU + encoders</small></div>
           <div><span>Ultrasonic</span><b id="ultrasonic-health">OK</b><small id="ultrasonic-detail">L 100 &middot; C 100 &middot; R 100</small></div>
         </div>
         <div class="status-message"><span id="status-icon">&bull;</span><div><b id="status-state">IDLE</b><small id="status-desc">Enter a book to begin</small></div></div>

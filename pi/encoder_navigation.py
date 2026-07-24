@@ -1,4 +1,4 @@
-"""Non-blocking encoder navigation for the fixed 1A-4B grid."""
+"""Non-blocking fused-odometry navigation for the fixed 1A-3B grid."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from copy import deepcopy
 from enum import Enum
 from typing import Any
 
-import os
 import numpy as np
 
 
@@ -33,7 +32,6 @@ class GridController:
         encoder_stall_seconds: float = 2.0,
         turn_source: str = "encoder",
         clock=time.monotonic,
-        **kwargs
     ):
         if obstacle_distance_cm <= 0 or encoder_stall_seconds <= 0:
             raise ValueError("Safety distance and encoder stall timeout must be positive")
@@ -46,11 +44,6 @@ class GridController:
         self.destination_dwell_seconds = float(destination_dwell_seconds)
         self.encoder_stall_seconds = float(encoder_stall_seconds)
         self.turn_source = turn_source
-        self.frame_provider = kwargs.get("frame_provider")
-        self.aruco_detector = kwargs.get("aruco_detector")
-        self.base_trim = int(os.getenv("LIBRARY_ROBOT_LEFT_SPEED_REDUCTION", "0"))
-        self.aruco_target_area = float(os.getenv("LIBRARY_ROBOT_ARUCO_TARGET_AREA", "35000"))
-        self._current_trim = self.base_trim
         self._clock = clock
         self._lock = threading.RLock()
         self.state = GridState.IDLE
@@ -63,13 +56,17 @@ class GridController:
         self._last_progress_at: float | None = None
         self._step_deadline: float | None = None  # timed mode: drive until this time
         self._latest_encoders: dict | None = None
+        self._latest_odometry: dict | None = None
         self._latest_ultrasonic: dict | None = None
         self._latest_turn_status: str | None = None
+        self._awaiting_pickup_confirmation = False
 
     def request_grid_mission(self, plan: dict) -> None:
         if not plan.get("outbound") or not plan.get("return"):
             raise ValueError("Grid plan requires outbound and return steps")
         with self._lock:
+            if self.state not in {GridState.IDLE, GridState.DOCKED}:
+                raise RuntimeError("A grid mission is already active")
             self.serial.send_stop()
             self.plan = deepcopy(plan)
             self.phase = "OUTBOUND"
@@ -77,6 +74,9 @@ class GridController:
             self.stop_reason = None
             self._dwell_deadline = None
             self._step_deadline = None
+            self._awaiting_pickup_confirmation = bool(
+                plan.get("pickup_confirmation_required", False)
+            )
             self._start_current_step()
 
     def get_state(self) -> str:
@@ -89,7 +89,7 @@ class GridController:
             status = {
                 "state": self.state.value,
                 "reason": self.stop_reason,
-                "navigation_mode": "grid_encoder",
+                "navigation_mode": "grid_fused_odometry",
                 "phase": self.phase,
                 "box_id": None if self.plan is None else self.plan["box_id"],
                 "book": None if self.plan is None else self.plan.get("book"),
@@ -112,6 +112,10 @@ class GridController:
                 "current_action": None,
                 "current_step_label": None,
                 "target_ticks": None,
+                "pickup_confirmation_required": (
+                    self.state == GridState.ARRIVED
+                    and self._awaiting_pickup_confirmation
+                ),
             }
             step = self._current_step()
             if step:
@@ -143,10 +147,35 @@ class GridController:
                     "right": None
                     if self._latest_encoders is None
                     else self._latest_encoders["right"],
+                    "left_cm": None
+                    if self._latest_odometry is None
+                    else self._latest_odometry.get("left_cm"),
+                    "right_cm": None
+                    if self._latest_odometry is None
+                    else self._latest_odometry.get("right_cm"),
+                    "distance_cm": None
+                    if self._latest_odometry is None
+                    else (
+                        float(self._latest_odometry["left_cm"])
+                        + float(self._latest_odometry["right_cm"])
+                    )
+                    / 2.0,
                 },
                 "imu": {
                     "status": self._latest_turn_status
-                    or ("READY" if self.turn_source == "imu" else "DISABLED")
+                    or ("READY" if self.turn_source == "imu" else "DISABLED"),
+                    "heading_encoder_deg": None
+                    if self._latest_odometry is None
+                    else self._latest_odometry.get("heading_encoder_deg"),
+                    "heading_imu_deg": None
+                    if self._latest_odometry is None
+                    else self._latest_odometry.get("heading_imu_deg"),
+                    "heading_fused_deg": None
+                    if self._latest_odometry is None
+                    else self._latest_odometry.get("heading_fused_deg"),
+                    "speed_correction": None
+                    if self._latest_odometry is None
+                    else self._latest_odometry.get("speed_correction"),
                 },
                 "ultrasonic": {
                     "status": "OK"
@@ -175,8 +204,32 @@ class GridController:
             self._dwell_deadline = None
             self._step_deadline = None
             self._latest_encoders = None
+            self._latest_odometry = None
             self._latest_ultrasonic = None
             self._latest_turn_status = None
+            self._awaiting_pickup_confirmation = False
+
+    def confirm_pickup(self) -> None:
+        """Start the return route after the user confirms taking the book."""
+        with self._lock:
+            if (
+                self.state != GridState.ARRIVED
+                or self.phase != "AT_DESTINATION"
+                or not self._awaiting_pickup_confirmation
+            ):
+                raise RuntimeError("Pickup confirmation is not currently expected")
+            self._awaiting_pickup_confirmation = False
+            self.phase = "RETURNING"
+            self.step_index = 0
+            self.stop_reason = None
+            self._dwell_deadline = None
+            self._step_deadline = None
+            self._start_current_step()
+
+    def cancel(self, reason: str = "mission_cancelled") -> None:
+        """Stop an active mission without pretending that the robot is docked."""
+        with self._lock:
+            self._safe_stop(reason)
 
     def step(self) -> None:
         with self._lock:
@@ -204,16 +257,16 @@ class GridController:
                 if step.get("target_seconds", 0.0) > 0.0 and step["action"] in {"FORWARD", "BACKWARD"}:
                     self._step_timed_linear()
                     return
-                # --- Visual Servoing Mode (ArUco approach) ---
-                if step["action"] == "ARUCO_APPROACH":
-                    self._step_aruco_approach()
-                    return
                 # --- Encoder mode ---
-                encoders = self.serial.get_encoders()
+                get_odometry = getattr(self.serial, "get_odometry", None)
+                odometry = get_odometry() if callable(get_odometry) else None
+                encoders = odometry if odometry is not None else self.serial.get_encoders()
                 if not self._valid_encoders(encoders):
                     self._safe_stop("encoder_unavailable")
                     return
                 self._latest_encoders = dict(encoders)
+                if odometry is not None:
+                    self._latest_odometry = dict(odometry)
                 # Require both drivetrain sides to progress. Using an average
                 # could hide one stalled wheel while the other keeps counting.
                 progress = min(
@@ -254,8 +307,13 @@ class GridController:
             self.turn_source == "imu"
             and step["action"] in {"TURN_LEFT", "TURN_RIGHT", "UTURN"}
         ):
+            if not self.serial.reset_encoders():
+                self._safe_stop("encoder_reset_failed")
+                return
             self.state = GridState.TURNING
             self._step_deadline = None
+            self._latest_encoders = {"left": 0, "right": 0}
+            self._latest_odometry = None
             self._latest_turn_status = "ACTIVE"
             self._send_imu_turn(step["action"])
             return
@@ -264,13 +322,6 @@ class GridController:
             self._step_deadline = self._clock() + step["target_seconds"]
             self.state = GridState.MOVING
             self._send_action(step["action"])
-            return
-        # ArUco Approach step
-        if step["action"] == "ARUCO_APPROACH":
-            self._step_deadline = self._clock() + 3.0  # Wait up to 3s for marker
-            self.state = GridState.MOVING
-            self.serial.send_stop()  # Wait here to let camera settle
-            step["aruco_locked"] = False
             return
         # Encoder-based step
         if not self.serial.reset_encoders():
@@ -300,6 +351,12 @@ class GridController:
             self._safe_stop("imu_turn_command_failed")
 
     def _step_imu_turn(self) -> None:
+        get_odometry = getattr(self.serial, "get_odometry", None)
+        if callable(get_odometry):
+            odometry = get_odometry()
+            if odometry is not None and self._valid_encoders(odometry):
+                self._latest_encoders = dict(odometry)
+                self._latest_odometry = dict(odometry)
         status = self.serial.get_turn_status()
         self._latest_turn_status = status
         if status == "ACTIVE":
@@ -321,7 +378,11 @@ class GridController:
             self.state = GridState.ARRIVED
             self.phase = "AT_DESTINATION"
             self.stop_reason = "destination_reached"
-            self._dwell_deadline = self._clock() + self.destination_dwell_seconds
+            self._dwell_deadline = (
+                None
+                if self._awaiting_pickup_confirmation
+                else self._clock() + self.destination_dwell_seconds
+            )
         else:
             self.state = GridState.DOCKED
             self.phase = "COMPLETE"
@@ -329,6 +390,8 @@ class GridController:
 
     def _step_dwell(self) -> None:
         self.serial.send_stop()
+        if self._awaiting_pickup_confirmation:
+            return
         if self._dwell_deadline is None or self._clock() < self._dwell_deadline:
             return
         self.phase = "RETURNING"
@@ -355,81 +418,6 @@ class GridController:
             else:
                 self._start_current_step()
 
-    def _step_aruco_approach(self) -> None:
-        """Dynamically steer towards an ArUco marker while driving forward."""
-        if self.frame_provider is None or self.aruco_detector is None:
-            self._safe_stop("aruco_unavailable_no_camera")
-            return
-            
-        step = self._current_step()
-        target_id = step.get("target_aruco_id")
-        
-        try:
-            frame = self.frame_provider()
-        except Exception:
-            self._safe_stop("camera_read_failed")
-            return
-            
-        if frame is None:
-            return  # No new frame yet
-            
-        detection = self.aruco_detector.detect_target(frame, target_id)
-        if not detection:
-            # Marker not in view
-            if not step.get("aruco_locked"):
-                if self._step_deadline and self._clock() > self._step_deadline:
-                    # Give up waiting, just move forward and hope we find it
-                    step["aruco_locked"] = True
-                    self.serial.send_action("FORWARD")
-                return
-                
-            # We were locked but lost it, just keep driving straight using base trim
-            if self._current_trim != self.base_trim:
-                self._current_trim = self.base_trim
-                if hasattr(self.serial, "set_trim"):
-                    self.serial.set_trim(self.base_trim)
-            return
-
-        # First time seeing it! Start moving.
-        if not step.get("aruco_locked"):
-            step["aruco_locked"] = True
-            self.serial.send_action("FORWARD")
-
-        area = detection["area"]
-        if area >= self.aruco_target_area:
-            self.serial.send_stop()
-            # Reset trim back to normal for next step
-            if hasattr(self.serial, "set_trim"):
-                self.serial.set_trim(self.base_trim)
-            self._current_trim = self.base_trim
-            self.step_index += 1
-            if self.step_index >= len(self._current_steps()):
-                self._complete_phase()
-            else:
-                self._start_current_step()
-            return
-            
-        # Proportional steering
-        frame_width = frame.shape[1]
-        center_x = detection["center_x"]
-        error_x = center_x - (frame_width / 2.0)
-        
-        # P-controller for steering. A positive error (marker is to the right)
-        # requires the robot to veer right (trim negative).
-        # A negative error (marker to the left) requires veering left (trim positive).
-        kp = -0.15 
-        adjustment = int(error_x * kp)
-        
-        new_trim = self.base_trim + adjustment
-        
-        # Limit max trim so it doesn't spin out of control
-        new_trim = max(self.base_trim - 30, min(self.base_trim + 30, new_trim))
-        
-        if new_trim != self._current_trim:
-            self._current_trim = new_trim
-            if hasattr(self.serial, "set_trim"):
-                self.serial.set_trim(new_trim)
-
     def _check_stall(self, progress: float) -> None:
         now = self._clock()
         if progress > self._last_progress_ticks:
@@ -442,15 +430,17 @@ class GridController:
 
     def _send_action(self, action: str) -> None:
         if action == "FORWARD":
-            self.serial.send_forward()
+            sent = self.serial.send_forward()
         elif action == "BACKWARD":
-            self.serial.send_backward()
+            sent = self.serial.send_backward()
         elif action in {"TURN_LEFT", "UTURN"}:
-            self.serial.send_rotate_left()
+            sent = self.serial.send_rotate_left()
         elif action == "TURN_RIGHT":
-            self.serial.send_rotate_right()
+            sent = self.serial.send_rotate_right()
         else:
             raise ValueError(f"Unsupported grid action: {action}")
+        if not sent:
+            self._safe_stop("serial_command_failed")
 
     def _safety_clear(self) -> bool:
         readings = self.serial.get_ultrasonic()
@@ -459,12 +449,17 @@ class GridController:
             return False
         self._latest_ultrasonic = dict(readings)
 
-        # Reversing blindly is safe because we retrace a known clear path
+        # The chassis has no rear-facing ultrasonic sensor. During reverse we
+        # can still validate all sensor data and enforce both side sensors, but
+        # the front-centre sensor faces the shelf we are backing away from.
+        # The rear corridor therefore must be cleared and supervised.
         step = self._current_step()
         if step is not None and step.get("action") == "BACKWARD":
-            return True
+            directions = ("left", "right")
+        else:
+            directions = ("left", "center", "right")
 
-        for direction in ("left", "center", "right"):
+        for direction in directions:
             if float(readings[direction]) < self.obstacle_distance_cm:
                 self._safe_stop(f"{direction}_obstacle")
                 return False

@@ -82,6 +82,8 @@ modules may be 3.3 V only. Check the board marking or datasheet before choosing
 | `TURN_UTURN` | Non-blocking MPU6500 180-degree left turn |
 | `TURN_STATUS` | Return `TURN:IDLE/ACTIVE/DONE/ERROR` |
 | `ENC_RESET` | Reset left/right encoder counters |
+| `ODOMETRY` | Read wheel distances, encoder/IMU/fused heading and PWM correction |
+| `SET_FUSION:...` | Configure complementary fusion and straight-line feedback |
 | `ENCODER` | Return `ENC:left,right` |
 | `CHECK` | Return `US:left,center,right` |
 | `STOP` | Cancel any turn and stop all motors |

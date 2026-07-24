@@ -1,5 +1,8 @@
 # Person 3 — Web App & UI Guide
 
+> The live app now uses student QR check-in, transactional borrowing, and
+> marker-free `1A`–`3B` navigation. ArUco endpoint examples below are legacy.
+
 ## Your Role
 You are responsible for the user-facing side of the project: the Flask web server running on the Raspberry Pi, and the web page that users open in their browser to select a book and watch the robot work.
 

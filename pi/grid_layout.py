@@ -1,4 +1,4 @@
-"""Parameterised 2-column by 4-row box layout and encoder/timed route planning."""
+"""Parameterised 2-column by 3-row box layout and encoder/timed route planning."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 
 BOX_IDS = tuple(f"{row}{column}" for row in range(1, 4) for column in ("A", "B"))
-MOTION_ACTIONS = {"FORWARD", "TURN_LEFT", "TURN_RIGHT", "UTURN", "ARUCO_APPROACH"}
+MOTION_ACTIONS = {"FORWARD", "TURN_LEFT", "TURN_RIGHT", "UTURN"}
 
 
 def normalize_box_id(box_id: str) -> str:
@@ -88,8 +88,8 @@ class GridGeometry:
             raise ValueError(
                 "Grid dimensions are not configured: " + ", ".join(self.missing_fields)
             )
-        if row not in range(1, 5):
-            raise ValueError("row must be between 1 and 4")
+        if row not in range(1, 4):
+            raise ValueError("row must be between 1 and 3")
         return float(self.first_row_distance_cm) + (row - 1) * float(
             self.row_spacing_cm
         )
@@ -225,11 +225,10 @@ def build_grid_route(
         speed = float(geometry.forward_speed_cms)
         aisle_cm = geometry.distance_to_row(row)
         approach_cm = float(geometry.box_approach_distance_cm)
-        target_aruco_id = (row - 1) * 2 + (0 if side == "A" else 1)
         outbound = [
             _timed_step("FORWARD", f"Dock to row {row}", aisle_cm, speed),
             _timed_step(outward_turn, f"Face box {box_id}", None, speed),
-            {"action": "ARUCO_APPROACH", "target_aruco_id": target_aruco_id, "label": f"Visual approach to {box_id}"},
+            _timed_step("FORWARD", f"Approach box {box_id}", approach_cm, speed),
         ]
         outbound[1]["target_degrees"] = geometry.outbound_turn_degrees
 
@@ -241,8 +240,9 @@ def build_grid_route(
         return_route[1]["target_degrees"] = geometry.return_turn_degrees
     else:
         aisle_ticks = calibration.distance_ticks(geometry.distance_to_row(row))
-        approach_ticks = calibration.distance_ticks(float(geometry.box_approach_distance_cm))
-        target_aruco_id = (row - 1) * 2 + (0 if side == "A" else 1)
+        approach_ticks = calibration.distance_ticks(
+            float(geometry.box_approach_distance_cm)
+        )
         outbound = [
             {"action": "FORWARD", "target_ticks": aisle_ticks, "target_seconds": 0.0, "label": f"Dock to row {row}"},
             {
@@ -252,11 +252,10 @@ def build_grid_route(
                 "label": f"Face box {box_id}",
             },
             {
-                "action": "ARUCO_APPROACH",
-                "target_aruco_id": target_aruco_id,
-                "target_ticks": 0,
+                "action": "FORWARD",
+                "target_ticks": approach_ticks,
                 "target_seconds": 0.0,
-                "label": f"Visual approach to {box_id}",
+                "label": f"Approach box {box_id}",
             },
         ]
         return_route = [

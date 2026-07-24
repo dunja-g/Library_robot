@@ -12,7 +12,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 try:
-    from .student_db import get_all_students, get_student_by_qr, get_student_by_id, borrow_book, return_book
+    from .borrowing_mission import BorrowingMission, BorrowingState
+    from .student_db import (
+        borrow_book,
+        get_all_students,
+        get_student_by_id,
+        get_student_by_qr,
+        get_borrower_for_book,
+        rollback_borrow_book,
+    )
     from .book_db import (
         find_book,
         get_all_books,
@@ -23,12 +31,19 @@ try:
     from .grid_layout import EncoderCalibration, GridGeometry, build_grid_route
     from .qr_scanner import QRScanner
 except ImportError:  # Supports ``python pi/app.py``.
-    from student_db import get_all_students, get_student_by_qr, get_student_by_id, borrow_book, return_book
+    from borrowing_mission import BorrowingMission, BorrowingState
+    from student_db import (
+        borrow_book,
+        get_all_students,
+        get_student_by_id,
+        get_student_by_qr,
+        get_borrower_for_book,
+        rollback_borrow_book,
+    )
     from book_db import find_book, get_all_books, get_book, search_books
     from encoder_navigation import GridController
     from grid_layout import EncoderCalibration, GridGeometry, build_grid_route
     from qr_scanner import QRScanner
-    from aruco_detector import ArucoDetector
 
 
 logging.basicConfig(level=logging.INFO)
@@ -57,11 +72,47 @@ GRID_TURN_SOURCE = os.getenv(
 ).strip().lower()
 grid_geometry = GridGeometry.from_env()
 encoder_calibration = EncoderCalibration.from_env()
+FUSION_ALPHA = float(os.getenv("LIBRARY_ROBOT_FUSION_ALPHA", "0.95"))
+HEADING_KP = float(os.getenv("LIBRARY_ROBOT_HEADING_KP", "1.5"))
+MAX_HEADING_CORRECTION = int(
+    os.getenv("LIBRARY_ROBOT_MAX_HEADING_CORRECTION", "30")
+)
+_wheel_track_raw = os.getenv("LIBRARY_ROBOT_WHEEL_TRACK_CM", "").strip()
+WHEEL_TRACK_CM = float(_wheel_track_raw) if _wheel_track_raw else None
+_left_ticks_raw = os.getenv("LIBRARY_ROBOT_LEFT_TICKS_PER_CM", "").strip()
+_right_ticks_raw = os.getenv("LIBRARY_ROBOT_RIGHT_TICKS_PER_CM", "").strip()
+LEFT_TICKS_PER_CM = (
+    float(_left_ticks_raw)
+    if _left_ticks_raw
+    else encoder_calibration.resolved_ticks_per_cm
+)
+RIGHT_TICKS_PER_CM = (
+    float(_right_ticks_raw)
+    if _right_ticks_raw
+    else encoder_calibration.resolved_ticks_per_cm
+)
+if not 0 <= FUSION_ALPHA <= 1:
+    raise ValueError("LIBRARY_ROBOT_FUSION_ALPHA must be between 0 and 1")
+if (
+    LEFT_TICKS_PER_CM <= 0
+    or RIGHT_TICKS_PER_CM <= 0
+    or HEADING_KP < 0
+    or not 0 <= MAX_HEADING_CORRECTION <= 100
+    or (WHEEL_TRACK_CM is not None and WHEEL_TRACK_CM <= 0)
+):
+    raise ValueError("Invalid fused-odometry calibration")
+FUSION_MISSING_FIELDS = [] if WHEEL_TRACK_CM is not None else ["wheel_track_cm"]
+MISSION_TIMEOUT_SECONDS = float(
+    os.getenv("LIBRARY_ROBOT_MISSION_TIMEOUT_SECONDS", "300")
+)
+if MISSION_TIMEOUT_SECONDS <= 0:
+    raise ValueError("LIBRARY_ROBOT_MISSION_TIMEOUT_SECONDS must be positive")
 
 # --- Student session state (set by QR scanner, cleared when robot docks) ---
 _session_lock = threading.Lock()
+_mission_lock = threading.RLock()
 _current_student: dict | None = None  # The checked-in student dict
-_had_active_mission = False  # True once a mission has started; used to know when to clear session
+_current_borrowing_mission: BorrowingMission | None = None
 
 def _set_current_student(student: dict | None) -> None:
     global _current_student
@@ -72,6 +123,43 @@ def _get_current_student() -> dict | None:
     with _session_lock:
         return _current_student
 
+
+def _get_current_mission() -> BorrowingMission | None:
+    with _mission_lock:
+        return _current_borrowing_mission
+
+
+def _check_in_by_qr(qr_code: str) -> tuple[dict | None, str | None]:
+    """Shared QR/manual check-in logic; only valid while stationary."""
+    global _current_borrowing_mission
+    with _mission_lock:
+        state = controller.get_state()
+        mission = _current_borrowing_mission
+        if state not in {"IDLE", "DOCKED"}:
+            return None, "robot_not_idle"
+        if mission is not None and mission.is_active:
+            return None, "mission_active"
+        student = get_student_by_qr(qr_code)
+        if student is None:
+            return None, "student_not_found"
+        _current_borrowing_mission = None
+        _set_current_student(student)
+        return student, None
+
+
+def _on_qr_detected(qr_code: str) -> None:
+    student, reason = _check_in_by_qr(qr_code)
+    if student is None:
+        logger.info("QR check-in rejected: %s", reason)
+        return
+    logger.info(
+        "Student checked in via QR: %s (%s)",
+        student["name"],
+        student["id"],
+    )
+
+
+qr_scanner = None
 
 if USE_MOCK:
     import cv2
@@ -88,18 +176,19 @@ if USE_MOCK:
             return True
 
         def send_forward(self): return True
+        def send_backward(self): return True
         def send_rotate_left(self): return True
         def send_rotate_right(self): return True
 
-        def send_turn_left(self):
+        def send_turn_left(self, _degrees=None):
             self.turn_status = "ACTIVE"
             return True
 
-        def send_turn_right(self):
+        def send_turn_right(self, _degrees=None):
             self.turn_status = "ACTIVE"
             return True
 
-        def send_turn_uturn(self):
+        def send_turn_uturn(self, _degrees=None):
             self.turn_status = "ACTIVE"
             return True
 
@@ -117,6 +206,18 @@ if USE_MOCK:
             self.left += 10000
             self.right += 10000
             return {"left": self.left, "right": self.right}
+
+        def get_odometry(self):
+            readings = self.get_encoders()
+            return {
+                **readings,
+                "left_cm": readings["left"] / LEFT_TICKS_PER_CM,
+                "right_cm": readings["right"] / RIGHT_TICKS_PER_CM,
+                "heading_encoder_deg": 0.0,
+                "heading_imu_deg": 0.0,
+                "heading_fused_deg": 0.0,
+                "speed_correction": 0,
+            }
 
         def get_ultrasonic(self):
             return {"left": 100, "center": 100, "right": 100}
@@ -171,8 +272,6 @@ if USE_MOCK:
         MockEncoderSerial(),
         destination_dwell_seconds=0.3,
         turn_source=GRID_TURN_SOURCE,
-        frame_provider=None,
-        aruco_detector=None,
     )
     camera = MockCamera()
     config = None
@@ -185,7 +284,6 @@ else:
         from camera import Camera
         from navigation_config import NavigationConfig
         from serial_bridge import SerialBridge
-        from aruco_detector import ArucoDetector
 
     config = NavigationConfig.from_env()
     serial_bridge = SerialBridge(
@@ -199,6 +297,16 @@ else:
             serial_bridge.set_trim(int(trim))
         except ValueError:
             logger.error("LIBRARY_ROBOT_LEFT_SPEED_REDUCTION must be an integer")
+    if WHEEL_TRACK_CM is not None:
+        if not serial_bridge.set_fusion_config(
+            alpha=FUSION_ALPHA,
+            left_ticks_per_cm=LEFT_TICKS_PER_CM,
+            right_ticks_per_cm=RIGHT_TICKS_PER_CM,
+            wheel_track_cm=WHEEL_TRACK_CM,
+            heading_kp=HEADING_KP,
+            max_correction=MAX_HEADING_CORRECTION,
+        ):
+            raise RuntimeError("Unable to configure Mega fused odometry")
             
     camera = Camera(
         width=config.camera_width,
@@ -213,22 +321,7 @@ else:
             os.getenv("LIBRARY_ROBOT_ENCODER_STALL_SECONDS", "2")
         ),
         turn_source=GRID_TURN_SOURCE,
-        frame_provider=camera.get_frame,
-        aruco_detector=ArucoDetector(),
     )
-
-    def _on_qr_detected(qr_code: str) -> None:
-        """Called from the QR scanner thread when a student ID is scanned."""
-        try:
-            from .student_db import get_student_by_qr
-        except ImportError:
-            from student_db import get_student_by_qr
-        student = get_student_by_qr(qr_code)
-        if student is None:
-            logger.info("Unknown QR code scanned: %s", qr_code)
-            return
-        logger.info("Student checked in via QR: %s (%s)", student['name'], student['id'])
-        _set_current_student(student)
 
     qr_scanner = QRScanner(
         frame_provider=camera.get_frame,
@@ -240,29 +333,55 @@ else:
         try:
             controller.reset()
         finally:
+            qr_scanner.stop()
             camera.stop()
             serial_bridge.close()
 
     atexit.register(_shutdown_hardware)
 
 
+def _cancel_pending_mission(reason: str) -> bool:
+    mission = _current_borrowing_mission
+    if mission is None or mission.state != BorrowingState.PENDING:
+        return False
+    mission.cancel(reason)
+    logger.warning("Pending borrowing mission cancelled: %s", reason)
+    return True
+
+
+def _reconcile_borrowing_state() -> None:
+    """Apply controller terminal states to the borrowing transaction."""
+    global _current_borrowing_mission
+    with _mission_lock:
+        mission = _current_borrowing_mission
+        if mission is None:
+            return
+        status = controller.get_status()
+        state = status["state"]
+        if mission.is_expired():
+            controller.cancel("mission_timeout")
+            _cancel_pending_mission("mission_timeout")
+            return
+        if state == "STOPPED":
+            _cancel_pending_mission(status.get("reason") or "robot_stopped")
+            return
+        if (
+            mission.state == BorrowingState.CONFIRMED
+            and state == "DOCKED"
+            and status.get("phase") == "COMPLETE"
+        ):
+            _current_borrowing_mission = None
+            _set_current_student(None)
+            logger.info("Borrowing mission complete; student session cleared")
+
+
 def _control_loop():
-    global _had_active_mission
     while True:
         try:
             controller.step()
-            state = str(controller.get_state())
-            # Track when a real mission has been dispatched
-            if state in ("MOVING", "TURNING", "ARRIVING", "RETURNING", "DWELLING"):
-                _had_active_mission = True
-            # Only clear student session after a mission has fully completed and robot is docked
-            if _had_active_mission and state in ("DOCKED", "IDLE") and _get_current_student() is not None:
-                if controller.get_status().get("phase") is None:
-                    _set_current_student(None)
-                    _had_active_mission = False
-                    logger.info("Student session cleared after robot docked")
         except Exception:
             logger.exception("Robot control loop failed; controller stopped safely")
+        _reconcile_borrowing_state()
         time.sleep(0.1 if USE_MOCK else 1.0 / config.control_hz)
 
 
@@ -292,6 +411,7 @@ def navigation_mode():
     missing = (
         grid_geometry.missing_fields
         + encoder_calibration.missing_fields_for(GRID_TURN_SOURCE)
+        + ([] if USE_MOCK else FUSION_MISSING_FIELDS)
     )
     return jsonify(
         {
@@ -322,6 +442,93 @@ def _resolve_book(query: str):
     return get_book(matches[0]["title"]) if len(matches) == 1 else None
 
 
+def _build_borrowing_plan(book: dict) -> dict:
+    plan = build_grid_route(
+        book["box_id"],
+        grid_geometry,
+        encoder_calibration,
+        turn_source=GRID_TURN_SOURCE,
+    )
+    plan.update(
+        book=book["title"],
+        book_code=book["book_id"],
+        location_code=book.get("location_code", ""),
+        layer=book.get("layer"),
+        position=book.get("position"),
+        pickup_confirmation_required=True,
+    )
+    return plan
+
+
+def _start_borrowing_mission(
+    book_query: str, requested_student_id: str | None = None
+) -> tuple[dict, int]:
+    global _current_borrowing_mission
+    with _mission_lock:
+        student = _get_current_student()
+        if student is None:
+            return {"ok": False, "message": "Scan a student card first"}, 401
+        if requested_student_id and requested_student_id != student["id"]:
+            return {"ok": False, "message": "Student session mismatch"}, 403
+        active = _current_borrowing_mission
+        if active is not None and active.is_active:
+            return {"ok": False, "message": "Another mission is active"}, 409
+        if controller.get_state() not in {"IDLE", "DOCKED"}:
+            return {"ok": False, "message": "Robot is not ready at Dock"}, 409
+
+        fresh_student = get_student_by_id(student["id"])
+        if fresh_student is None:
+            return {"ok": False, "message": "Student not found"}, 404
+        if fresh_student.get("borrowed_book_id"):
+            return {"ok": False, "message": "Student already has a book"}, 409
+
+        book = _resolve_book(book_query)
+        if book is None:
+            return {"ok": False, "message": "Book not found"}, 404
+        if get_borrower_for_book(book["book_id"]) is not None:
+            return {"ok": False, "message": "Book is already borrowed"}, 409
+        if not USE_MOCK and FUSION_MISSING_FIELDS:
+            return {
+                "ok": False,
+                "message": "Grid navigation is not calibrated: "
+                + ", ".join(FUSION_MISSING_FIELDS),
+            }, 503
+        try:
+            plan = _build_borrowing_plan(book)
+        except ValueError as exc:
+            status_code = 503 if "not calibrated" in str(exc) else 400
+            return {"ok": False, "message": str(exc)}, status_code
+
+        mission = BorrowingMission.create(
+            fresh_student,
+            book,
+            timeout_seconds=MISSION_TIMEOUT_SECONDS,
+        )
+        _current_borrowing_mission = mission
+        try:
+            controller.request_grid_mission(plan)
+        except Exception as exc:
+            mission.cancel(f"dispatch_failed:{type(exc).__name__}")
+            return {"ok": False, "message": "Unable to dispatch robot"}, 503
+        if controller.get_state() == "STOPPED":
+            reason = controller.get_status().get("reason") or "dispatch_failed"
+            mission.cancel(reason)
+            return {"ok": False, "message": f"Robot stopped: {reason}"}, 503
+
+        return {
+            "ok": True,
+            "mission": mission.as_dict(),
+            "book": {
+                "title": book["title"],
+                "book_id": book["book_id"],
+                "location_code": book.get("location_code", ""),
+                "box_id": book["box_id"],
+                "layer": book["layer"],
+                "position": book["position"],
+            },
+        }, 202
+
+
 @app.route("/request_book", methods=["POST"])
 def request_book():
     data = request.get_json(silent=True) or {}
@@ -330,47 +537,9 @@ def request_book():
         return jsonify(
             {"status": "error", "message": "Enter a book title or number"}
         ), 400
-    book = _resolve_book(query)
-    if book is None:
-        return jsonify(
-            {"status": "error", "message": f"Book not found or ambiguous: {query}"}
-        ), 404
-
-    try:
-        plan = build_grid_route(
-            book["box_id"],
-            grid_geometry,
-            encoder_calibration,
-            turn_source=GRID_TURN_SOURCE,
-        )
-    except ValueError as exc:
-        status_code = 503 if "not calibrated" in str(exc) else 400
-        return jsonify({"status": "error", "message": str(exc)}), status_code
-
-    plan.update(
-        book=book["title"],
-        book_code=book["book_id"],
-        location_code=book.get("location_code", ""),
-        layer=book.get("layer"),
-        position=book.get("position"),
-    )
-    controller.request_grid_mission(plan)
-    logger.info("Book requested: %s -> %s", book["title"], book.get("location_code", ""))
-    return jsonify(
-        {
-            "status": "ok",
-            "title": book["title"],
-            "book_code": book["book_id"],
-            "location_code": book.get("location_code", ""),
-            "destination": {
-                "box_id": book["box_id"],
-                "layer": book.get("layer"),
-                "position": book.get("position"),
-            },
-            "outbound": plan["outbound"],
-            "return": plan["return"],
-        }
-    )
+    payload, status_code = _start_borrowing_mission(query)
+    payload["status"] = "ok" if payload.get("ok") else "error"
+    return jsonify(payload), status_code
 
 
 @app.route("/status")
@@ -383,12 +552,19 @@ def status():
         "has_book": student["borrowed_book_id"] is not None,
         "borrowed_book_id": student["borrowed_book_id"],
     } if student else None
+    mission = _get_current_mission()
+    data["borrowing_mission"] = None if mission is None else mission.as_dict()
     return jsonify(data)
 
 
 @app.route("/reset", methods=["POST"])
 def reset():
-    controller.reset()
+    with _mission_lock:
+        mission = _current_borrowing_mission
+        _cancel_pending_mission("reset")
+        controller.reset()
+        if mission is None or mission.state != BorrowingState.CONFIRMED:
+            _set_current_student(None)
     return jsonify({"status": "ok"})
 
 
@@ -406,9 +582,10 @@ def api_checkin():
     qr_code = data.get("qr_code")
     if not qr_code:
         return jsonify({"ok": False, "message": "Missing qr_code"}), 400
-    student = get_student_by_qr(qr_code)
-    if not student:
-        return jsonify({"ok": False, "message": "Student not found"}), 404
+    student, reason = _check_in_by_qr(str(qr_code))
+    if student is None:
+        status_code = 404 if reason == "student_not_found" else 409
+        return jsonify({"ok": False, "message": reason}), status_code
     student_resp = dict(student)
     student_resp["has_book"] = student_resp.get("borrowed_book_id") is not None
     return jsonify({"ok": True, "student": student_resp}), 200
@@ -419,78 +596,59 @@ def api_borrow():
     data = request.get_json(silent=True) or {}
     student_id = data.get("student_id")
     book_query = data.get("book_query")
-    if not student_id or not book_query:
-        return jsonify({"ok": False, "message": "Missing student_id or book_query"}), 400
-
-    book = _resolve_book(book_query)
-    if not book:
-        return jsonify({"ok": False, "message": "Book not found"}), 404
-
-    borrow_res = borrow_book(student_id, book["book_id"])
-    if not borrow_res.get("ok"):
-        return jsonify(borrow_res), 409
-
-    try:
-        plan = build_grid_route(
-            book["box_id"],
-            grid_geometry,
-            encoder_calibration,
-            turn_source=GRID_TURN_SOURCE,
-        )
-    except ValueError as exc:
-        status_code = 503 if "not calibrated" in str(exc) else 400
-        return jsonify({"ok": False, "message": str(exc)}), status_code
-
-    plan.update(
-        book=book["title"],
-        book_code=book["book_id"],
-        location_code=book.get("location_code", ""),
-        layer=book.get("layer"),
-        position=book.get("position"),
+    if not book_query:
+        return jsonify({"ok": False, "message": "Missing book_query"}), 400
+    payload, status_code = _start_borrowing_mission(
+        str(book_query),
+        None if student_id is None else str(student_id),
     )
-    controller.request_grid_mission(plan)
-    
-    return jsonify({
-        "ok": True,
-        "book": {
-            "title": book["title"],
-            "book_id": book["book_id"],
-            "location_code": book.get("location_code", "")
-        }
-    }), 200
+    return jsonify(payload), status_code
 
 
-@app.route("/api/return_book", methods=["POST"])
-def api_return_book():
+@app.route("/api/confirm_pickup", methods=["POST"])
+def api_confirm_pickup():
+    global _current_borrowing_mission
     data = request.get_json(silent=True) or {}
-    student_id = data.get("student_id")
-    if not student_id:
-        return jsonify({"ok": False, "message": "Missing student_id"}), 400
+    requested_mission_id = data.get("mission_id")
+    with _mission_lock:
+        mission = _current_borrowing_mission
+        if mission is None or mission.state != BorrowingState.PENDING:
+            return jsonify({"ok": False, "message": "No pending mission"}), 409
+        if requested_mission_id and requested_mission_id != mission.mission_id:
+            return jsonify({"ok": False, "message": "Mission mismatch"}), 409
+        status = controller.get_status()
+        if (
+            status["state"] != "ARRIVED"
+            or status.get("phase") != "AT_DESTINATION"
+        ):
+            return jsonify({"ok": False, "message": "Robot has not arrived"}), 409
 
-    return_res = return_book(student_id)
-    if not return_res.get("ok"):
-        return jsonify({"ok": False, "message": "No book to return"}), 400
+        borrow_result = borrow_book(mission.student_id, mission.book_id)
+        if not borrow_result.get("ok"):
+            return jsonify(borrow_result), 409
+        try:
+            controller.confirm_pickup()
+            mission.confirm()
+        except Exception:
+            rollback_borrow_book(mission.student_id, mission.book_id)
+            return jsonify(
+                {"ok": False, "message": "Could not start return route"}
+            ), 503
 
-    returned_book_id = return_res["book_id"]
-    return_box = os.getenv("LIBRARY_ROBOT_RETURN_SLOT", "1A")
+        refreshed_student = get_student_by_id(mission.student_id)
+        _set_current_student(refreshed_student)
+        return jsonify({"ok": True, "mission": mission.as_dict()}), 200
 
-    try:
-        plan = build_grid_route(
-            return_box,
-            grid_geometry,
-            encoder_calibration,
-            turn_source=GRID_TURN_SOURCE,
+
+@app.route("/api/cancel_mission", methods=["POST"])
+def api_cancel_mission():
+    with _mission_lock:
+        if not _cancel_pending_mission("cancelled_by_user"):
+            return jsonify({"ok": False, "message": "No pending mission"}), 409
+        controller.cancel("cancelled_by_user")
+        return jsonify(
+            {"ok": True, "mission": _current_borrowing_mission.as_dict()}
         )
-        plan.update(
-            book="RETURN",
-            book_code=returned_book_id,
-            location_code=return_box,
-        )
-        controller.request_grid_mission(plan)
-    except Exception as e:
-        logger.error(f"Failed to route to return slot: {e}")
-
-    return jsonify({"ok": True, "returned_book_id": returned_book_id}), 200
 
 
 if __name__ == "__main__":

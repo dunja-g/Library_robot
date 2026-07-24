@@ -1118,6 +1118,46 @@ footer .divider { margin: 0 12px; color: #a4b5d4; }
   margin-bottom: 20px;
 }
 
+.pickup-confirmation {
+  margin-top: 16px;
+  padding: 18px;
+  border: 1px solid #b9d2ff;
+  border-radius: 14px;
+  background: var(--light-blue);
+  box-shadow: 0 8px 22px rgba(20, 85, 192, 0.08);
+}
+.pickup-confirmation[hidden] { display: none; }
+.pickup-eyebrow {
+  color: var(--green);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.pickup-confirmation h3 {
+  margin: 6px 0;
+  color: var(--navy);
+}
+.pickup-confirmation p {
+  margin: 5px 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+.pickup-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+  margin-top: 14px;
+}
+.pickup-actions .primary-btn,
+.pickup-actions .secondary-btn {
+  min-height: 42px;
+  margin: 0;
+  padding: 9px 12px;
+  font-size: 0.72rem;
+}
+
 /* Student Portal Table */
 .portal-body {
   padding: 15px;
