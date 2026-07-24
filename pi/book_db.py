@@ -185,8 +185,6 @@ BOOK_DATABASE = {
         "return_route": "3B_RETURN",
     },
 
-
-
     # The former row-4 titles remain available in the reduced six-box layout.
     "Computer Systems: CSAPP": {
         "book_id": "BK011",
