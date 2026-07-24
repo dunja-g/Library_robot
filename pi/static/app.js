@@ -67,27 +67,36 @@ let searchTimer = null;
 window.currentStudent = null;
 window.currentMission = null;
 
-function syncCameraStream() {
+function initFastCameraStream() {
   const checkinFeed = document.querySelector('.checkin-camera');
   const liveFeed = document.getElementById('camera-feed');
-  const checkinPanel = document.getElementById('checkin-panel');
-  const pageVisible = !document.hidden;
-  const checkinVisible = checkinPanel && checkinPanel.style.display !== 'none';
-  const activeFeed = pageVisible ? (checkinVisible ? checkinFeed : liveFeed) : null;
 
-  [checkinFeed, liveFeed].forEach(feed => {
-    if (!feed) return;
-    if (feed === activeFeed) {
-      if (feed.dataset.streamActive !== 'true') {
-        feed.src = `${feed.dataset.streamSrc}?t=${Date.now()}`;
-        feed.dataset.streamActive = 'true';
-      }
-    } else if (feed.hasAttribute('src')) {
-      // Removing src closes the browser's MJPEG connection immediately.
-      feed.removeAttribute('src');
-      feed.dataset.streamActive = 'false';
+  function fetchNextFrame() {
+    if (document.hidden) {
+      setTimeout(fetchNextFrame, 500);
+      return;
     }
-  });
+    const checkinPanel = document.getElementById('checkin-panel');
+    const checkinVisible = checkinPanel && checkinPanel.style.display !== 'none';
+    const activeFeed = checkinVisible ? checkinFeed : liveFeed;
+
+    if (!activeFeed) {
+      setTimeout(fetchNextFrame, 200);
+      return;
+    }
+
+    const nextImg = new Image();
+    nextImg.onload = () => {
+      activeFeed.src = nextImg.src;
+      setTimeout(fetchNextFrame, 50);
+    };
+    nextImg.onerror = () => {
+      setTimeout(fetchNextFrame, 300);
+    };
+    nextImg.src = `/api/latest_frame.jpg?t=${Date.now()}`;
+  }
+
+  fetchNextFrame();
 }
 
 window.addEventListener('DOMContentLoaded', () => {
@@ -104,11 +113,11 @@ window.addEventListener('DOMContentLoaded', () => {
   pollStatus();
   window.setInterval(pollStatus, 1000);
   initCheckin();
-  syncCameraStream();
-  document.addEventListener('visibilitychange', syncCameraStream);
+  initFastCameraStream();
   loadStudentPortal();
   window.setInterval(loadStudentPortal, 5000);
 });
+
 
 async function loadCatalogue() {
   try {

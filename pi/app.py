@@ -463,6 +463,19 @@ def video_feed():
     )
 
 
+@app.route("/api/latest_frame.jpg")
+def latest_frame_jpg():
+    jpeg = camera.get_latest_jpeg()
+    if not jpeg:
+        return Response(status=204)
+    response = Response(jpeg, mimetype="image/jpeg")
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
+
 @app.route("/camera_status")
 def camera_status():
     if USE_MOCK:
