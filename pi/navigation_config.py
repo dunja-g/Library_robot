@@ -1,4 +1,4 @@
-"""Runtime configuration for camera capture and ArUco navigation."""
+"""Runtime configuration for camera capture and fixed-grid navigation."""
 
 from __future__ import annotations
 

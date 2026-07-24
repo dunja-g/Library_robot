@@ -1,71 +1,79 @@
-# Library Robot — Multi-Waypoint MVP
+# Library Robot — Borrowing-Only Fixed-Grid MVP
 
-A Raspberry Pi 5 and Arduino Mega robot that guides a user to a numbered
-fixed-grid book location using wheel encoders, an MPU6500, and ultrasonic
-fail-safe stopping. The current application does not load marker scanning.
-Legacy vision modules remain only for historical tests.
+A Raspberry Pi 5 and Arduino Mega robot that helps an identified student
+borrow a numbered book from a fixed `1A`–`4B` layout. Navigation is
+marker-free: wheel encoders measure distance, the MPU6500 controls turns, and
+three front/side ultrasonic sensors provide fail-safe stopping.
 
-The default `grid` mode supports a marker-free fixed
-1A-4B layout. It generates routes from measured dimensions and executes them
-with left/right wheel encoders. See
-[docs/FIXED_GRID_ENCODER.md](docs/FIXED_GRID_ENCODER.md).
+This runtime does not use reinforcement learning, face recognition, SLAM, or
+ArUco route markers. Legacy vision files remain only for historical tests.
 
-## Current demonstration
+## End-to-end borrowing flow
 
-The catalogue contains **Deep Learning** at `1A-L3-P21`: box 1A, layer 3,
-position 21. The base generates a distance-and-turn route to box 1A, announces
-the precise book location, then returns automatically. No marker is required.
+1. While the robot is `IDLE` or `DOCKED`, scan a QR student card.
+2. Search for a book and create a `pending` borrowing mission.
+3. The robot travels from Dock to the selected `1A`–`4B` box.
+4. At `ARRIVED`, the UI shows the exact layer and position.
+5. The student takes the book and confirms pickup.
+6. Only then is the book recorded as borrowed.
+7. The robot reverses out, aligns with the aisle, and reverses to Dock.
+8. After controller state `DOCKED` and phase `COMPLETE`, the session clears.
 
-## Software flow
+A pending mission is cancelled without a database write after an obstacle,
+encoder stall, IMU failure, serial failure, timeout, reset, or other safety
+stop. Duplicate missions are rejected.
 
-`IDLE → MOVING → TURNING → MOVING → ARRIVED → RETURNING → DOCKED`
+## Reverse-return safety limitation
 
-Any invalid ultrasonic reading, obstacle, timeout, or controller exception sends a motor stop and enters `STOPPED`. `/reset` stops the motors and clears the mission; it does not physically drive the robot back to Dock.
+The physical scene does not provide enough space for a destination U-turn, so
+the configured return route uses `BACKWARD`. All ultrasonic readings must
+remain valid and the left/right sensors remain active, but there is no
+rear-facing sensor. The reverse corridor must therefore be cleared before
+dispatch and supervised during every physical run.
 
 ## Project structure
 
 ```text
-arduino/library_robot.ino       Arduino motor and HC-SR04 firmware
-pi/app.py                      Flask API, UI server, and Mock mode
-pi/book_db.py                  Book and physical shelf metadata
-pi/route_db.py                 Marker catalogue and route/turn configuration
-pi/mission.py                  Outbound/return mission progress
-pi/grid_layout.py              Parameterised 1A-4B geometry and route generator
-pi/encoder_navigation.py       Encoder motion state machine
-pi/robot_controller.py         Non-blocking navigation state machine
-pi/aruco_detector.py           Legacy vision module (not loaded by current app)
-pi/camera.py                   Picamera2 capture and MJPEG stream
-pi/serial_bridge.py            Raspberry Pi ↔ Arduino serial protocol
-pi/navigation_config.py        Environment-based tuning
-tests/                         Hardware-free unit and integration tests
-docs/MULTI_WAYPOINT_MVP.md     Placement, tuning, safety, and runbook
-docs/HARDWARE_PINOUT.md        Final Mega, encoder, IMU, and sensor wiring
-docs/BOOK_NUMBERING.md         1A-L3-P21 book-location numbering convention
+arduino/library_robot.ino       Mega motor, encoder, IMU and HC-SR04 firmware
+pi/app.py                       Flask API and borrowing transaction orchestration
+pi/borrowing_mission.py         pending/confirmed/cancelled mission state
+pi/student_db.py                atomic student loan database
+pi/book_db.py                   book and physical shelf metadata
+pi/grid_layout.py               parameterised 1A-4B route generation
+pi/encoder_navigation.py        non-blocking fixed-grid controller
+pi/qr_scanner.py                student-card QR scanner
+pi/camera.py                    shared Picamera2 capture and MJPEG stream
+pi/serial_bridge.py             Raspberry Pi to Arduino serial protocol
+tests/                          hardware-free unit and integration tests
+docs/FIXED_GRID_ENCODER.md      calibration and reverse-return safety
+docs/LIVE_DEMO_RUNBOOK.md       physical demonstration procedure
 ```
 
 ## Run without hardware
 
-```bash
+```powershell
 pip install -r requirements.txt
 pip install -r requirements-dev.txt
-set LIBRARY_ROBOT_USE_MOCK=true
+$env:LIBRARY_ROBOT_USE_MOCK="true"
 python -m pi.app
 ```
 
-On PowerShell, use `$env:LIBRARY_ROBOT_USE_MOCK="true"`. Open `http://localhost:5000`, select **Deep Learning**, and watch the complete outbound and return simulation.
+Open `http://localhost:5000`, check in with `LIBSTU-S001`, select a book,
+dispatch the mission, and confirm pickup after the UI reaches `ARRIVED`.
 
 ## Run on Raspberry Pi
 
 1. Flash `arduino/library_robot.ino` to the Mega.
-2. Wire and test all three HC-SR04 sensors and the differential drive.
-3. Install dependencies and enable the Pi camera.
-4. Copy `.env.example` values into the service environment and set `LIBRARY_ROBOT_USE_MOCK=false`.
-5. From the repository root, run `python -m pi.app` and open `http://<pi-ip>:5000`.
+2. Verify the wiring in `docs/HARDWARE_PINOUT.md`.
+3. Measure and configure all grid and encoder values.
+4. Set `LIBRARY_ROBOT_USE_MOCK=false`.
+5. Run `python -m pi.app`.
+6. Open `http://<pi-ip>:5000`.
 
-Run offline verification with:
+Before powering the motors, read `docs/LIVE_DEMO_RUNBOOK.md`.
+
+Run all software checks with:
 
 ```bash
 python -m pytest -q
 ```
-
-See [docs/MULTI_WAYPOINT_MVP.md](docs/MULTI_WAYPOINT_MVP.md) before the first powered route trial.

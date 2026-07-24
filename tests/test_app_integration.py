@@ -158,7 +158,8 @@ def test_book_is_recorded_only_after_pickup_confirmation(monkeypatch, tmp_path):
     assert response.status_code == 200
     assert response.get_json()["mission"]["state"] == "confirmed"
     assert module.get_student_by_id("S001")["borrowed_book_id"] == "BK001"
-    assert module.controller.get_status()["current_action"] == "BACKWARD"
+    assert module.controller.get_status()["phase"] == "RETURNING"
+    assert module.controller.plan["return"][0]["action"] == "BACKWARD"
 
 
 def test_duplicate_request_and_checkin_are_rejected_while_active(

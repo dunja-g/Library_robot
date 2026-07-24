@@ -1,5 +1,8 @@
 # Person 2 — Computer Vision & Navigation Guide
 
+> Historical document: QR is now used only for student identification.
+> Navigation uses encoders and MPU6500 without ArUco route markers.
+
 ## Your Role
 You are responsible for everything that involves the camera: generating the ArUco markers to print, detecting them in real time from the Pi Camera, and the core navigation logic that decides how the robot moves.
 

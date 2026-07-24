@@ -39,14 +39,17 @@ The photographed scene is numbered:
 }
 ```
 
-The web UI still asks the user to select a book title. In grid mode the server:
+After a student QR check-in, the web UI asks the user to select a book. The
+server:
 
-1. looks up the book record;
-2. reads `box_id`, `layer`, and `position`;
-3. generates the encoder/IMU route to that box;
-4. displays the full location code;
-5. drives directly to the box without marker scanning;
-6. announces arrival and returns to Dock.
+1. validates the student session and loan status;
+2. looks up the book record;
+3. validates grid and encoder calibration;
+4. creates a pending mission without writing a loan;
+5. drives to the box without marker scanning;
+6. displays the exact layer and position at `ARRIVED`;
+7. records the loan only after pickup confirmation;
+8. reverses safely to Dock and clears the student session.
 
 Layer and position identify the book for the user; the mobile base navigates
 only to the corresponding box. A lifting or picking mechanism would be needed

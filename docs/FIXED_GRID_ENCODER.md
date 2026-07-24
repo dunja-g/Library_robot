@@ -25,16 +25,21 @@ For a destination such as `3B`, the generated route is:
 1. Drive from Dock to row 3 using encoder distance.
 2. Turn right by the calibrated 90-degree tick count.
 3. Approach the box using encoder distance.
-4. Stop and announce arrival.
-5. Turn 180 degrees.
-6. Return to the centre aisle.
-7. Turn left to face Dock.
-8. Drive the measured row distance back and enter `DOCKED`.
+4. Stop, show the exact layer/position, and wait for pickup confirmation.
+5. Reverse the approach distance back to the centre aisle.
+6. Apply the mirrored 90-degree turn to align with the aisle.
+7. Reverse the measured row distance back and enter `DOCKED`.
 
 The A route mirrors the B route. Route execution is non-blocking. All three
-ultrasonic readings are checked during every moving or turning iteration.
+ultrasonic data is validated during every moving or turning iteration.
 Missing encoder data, no encoder progress, missing ultrasonic data, or an
 obstacle causes `STOPPED`.
+
+The return route is a space-constrained reverse route. During reverse, the
+left/right ultrasonic thresholds remain active; the front-centre reading is
+ignored because it faces the shelf the robot is leaving. There is no
+rear-facing obstacle sensor, so the reverse corridor must be cleared and
+supervised.
 
 ## Mega encoder wiring
 
@@ -106,13 +111,12 @@ The server reports the missing values at `/navigation_mode` and refuses
    ticks per centimetre from the average.
 5. Measure left and right 90-degree turns. The current route uses a common
    tick target, so correct mechanical/PWM imbalance before route trials.
-6. Measure the U-turn independently.
-7. Fill in the three layout dimensions.
-8. Test `1A`, then `1B`, then row 4 to expose accumulated straight-line error.
+6. Fill in the three layout dimensions.
+7. Test `1A`, then `1B`, then row 4 to expose accumulated straight-line error.
 
 Keep a person at the power switch during commissioning. The three existing
-sensors face the front and sides; the generated return route uses a U-turn and
-forward motion instead of reversing blindly.
+sensors face the front and sides. They cannot detect an obstacle directly
+behind the robot during the configured reverse return.
 
 ## Mock test
 
