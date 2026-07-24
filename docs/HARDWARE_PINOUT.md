@@ -16,15 +16,11 @@ timing jitter.
 | Right encoder pulse / channel A | 19 | Interrupt-capable; also RX1, so do not use Serial1 |
 | MPU6500 SDA | 20 | Mega I2C SDA |
 | MPU6500 SCL | 21 | Mega I2C SCL |
-| Centre ultrasonic ECHO | 22 | Existing confirmed wiring |
-| Centre ultrasonic TRIG | 23 | Existing confirmed wiring |
-| Left ultrasonic ECHO | 24 | Existing confirmed wiring |
-| Left ultrasonic TRIG | 25 | Existing confirmed wiring |
-| Right ultrasonic ECHO | 26 | Existing confirmed wiring |
-| Right ultrasonic TRIG | 27 | Existing confirmed wiring |
+| Front ultrasonic ECHO | 22 | HC-SR04 front distance sensor |
+| Front ultrasonic TRIG | 23 | HC-SR04 front distance sensor |
 
 The AFMotor V1 shield uses motor channels M1/M4 for the left side and M2/M3
-for the right side. Its control/PWM pins do not overlap Mega pins 18-27.
+for the right side. Its control/PWM pins do not overlap Mega pins 18-23.
 USB serial uses Mega pins 0/1 internally, so encoder pins 18/19 do not conflict
 with the normal USB connection.
 

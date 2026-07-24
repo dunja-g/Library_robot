@@ -50,22 +50,26 @@ For a destination such as `3B`, the generated route is:
 
 1. Drive from Dock to row 3 using encoder distance.
 2. Turn right by the calibrated 90-degree tick count.
+
+For a destination such as `3B`, the generated route is:
+
+1. Drive from Dock to row 3 using encoder distance.
+2. Turn right by the calibrated 90-degree tick count.
 3. Approach the box using encoder distance.
 4. Stop, show the exact layer/position, and wait for pickup confirmation.
 5. Reverse the approach distance back to the centre aisle.
 6. Apply the mirrored 90-degree turn to align with the aisle.
 7. Reverse the measured row distance back and enter `DOCKED`.
 
-The A route mirrors the B route. Route execution is non-blocking. All three
-ultrasonic data is validated during every moving or turning iteration.
+The A route mirrors the B route. Route execution is non-blocking. Ultrasonic data
+from the single front HC-SR04 sensor is validated during every moving iteration.
 Missing encoder data, no encoder progress, missing ultrasonic data, or an
 obstacle causes `STOPPED`.
 
-The return route is a space-constrained reverse route. During reverse, the
-left/right ultrasonic thresholds remain active; the front-centre reading is
-ignored because it faces the shelf the robot is leaving. There is no
-rear-facing obstacle sensor, so the reverse corridor must be cleared and
-supervised.
+The return route is a space-constrained reverse route. During reverse, the front
+ultrasonic reading is ignored because it faces the shelf the robot is leaving.
+There is no rear-facing obstacle sensor, so the reverse corridor must be cleared
+and supervised.
 
 ## Mega encoder wiring
 
@@ -86,10 +90,11 @@ direction validation.
 The serial protocol adds:
 
 ```text
-ENC_RESET  -> reset counters; Mega replies ENC_RESET:OK
-ENCODER    -> Mega replies ENC:left,right
-ODOMETRY   -> Mega replies ODOM:left,right,d_left,d_right,theta_enc,theta_imu,theta_fused,correction
-SET_FUSION -> configure scales, wheel track, alpha and closed-loop gain
+ENC_RESET          -> reset counters; Mega replies ENC_RESET:OK
+ENCODER            -> Mega replies ENC:left,right
+ODOMETRY           -> Mega replies ODOM:left,right,d_left,d_right,theta_enc,theta_imu,theta_fused,correction,rl_correction
+SET_FUSION         -> configure scales, wheel track, alpha and closed-loop gain
+SET_RL_CORRECTION  -> configure SAC residual heading PWM adjustment (max ±10 PWM)
 ```
 
 Change `ENCODER_LEFT_PIN` and `ENCODER_RIGHT_PIN` in

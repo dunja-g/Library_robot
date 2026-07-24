@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from copy import deepcopy
@@ -9,6 +10,8 @@ from enum import Enum
 from typing import Any
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 class GridState(str, Enum):
@@ -38,6 +41,7 @@ class GridController:
         turn_source: str = "encoder",
         sensor_disagreement_threshold_deg: float = 25.0,
         reverse_segment_timeout_seconds: float = 15.0,
+        rl_adapter: Any | None = None,
         clock=time.monotonic,
     ):
         if obstacle_distance_cm <= 0 or encoder_stall_seconds <= 0:
@@ -55,6 +59,7 @@ class GridController:
         self.turn_source = turn_source
         self.sensor_disagreement_threshold_deg = float(sensor_disagreement_threshold_deg)
         self.reverse_segment_timeout_seconds = float(reverse_segment_timeout_seconds)
+        self.rl_adapter = rl_adapter
         self._clock = clock
         self._lock = threading.RLock()
         self.state = GridState.IDLE
@@ -151,6 +156,15 @@ class GridController:
                 segment_progress = min(100, round(encoder_progress / target_ticks * 100))
             else:
                 segment_progress = 0
+
+            # Single front ultrasonic status report
+            us_data = {}
+            if self._latest_ultrasonic is not None:
+                front_val = self._latest_ultrasonic.get("front")
+                if front_val is None and "center" in self._latest_ultrasonic:
+                    front_val = self._latest_ultrasonic["center"]
+                us_data["front"] = front_val
+
             status["telemetry"] = {
                 "segment_progress_percent": segment_progress,
                 "encoders": {
@@ -178,7 +192,6 @@ class GridController:
                         + float(self._latest_odometry["right_cm"])
                     )
                     / 2.0,
-
                 },
                 "imu": {
                     "status": self._latest_turn_status
@@ -196,14 +209,21 @@ class GridController:
                     "speed_correction": None
                     if self._latest_odometry is None
                     else self._latest_odometry.get("speed_correction"),
+                    "rl_correction": None
+                    if self._latest_odometry is None
+                    else self._latest_odometry.get("rl_correction", 0),
                 },
                 "ultrasonic": {
                     "status": "OK"
                     if self._latest_ultrasonic is not None
                     else "WAITING",
-                    **({} if self._latest_ultrasonic is None else self._latest_ultrasonic),
+                    **us_data,
                 },
             }
+
+            if self.rl_adapter is not None and hasattr(self.rl_adapter, "get_status"):
+                status["rl_status"] = self.rl_adapter.get_status()
+
             return status
 
     def _status_steps(self) -> list[dict]:
@@ -274,8 +294,10 @@ class GridController:
                     self._safe_stop("route_state_error")
                     return
 
+                action = step.get("action", "")
+
                 # Reverse segment timeout check
-                if step.get("action") == "BACKWARD" and self._step_start_at is not None:
+                if action == "BACKWARD" and self._step_start_at is not None:
                     if self._clock() - self._step_start_at > self.reverse_segment_timeout_seconds:
                         self._safe_stop("reverse_timeout")
                         return
@@ -285,8 +307,9 @@ class GridController:
                     return
 
                 # Timed forward/backward mode
-                if step.get("target_seconds", 0.0) > 0.0 and step["action"] in {"FORWARD", "BACKWARD"}:
+                if step.get("target_seconds", 0.0) > 0.0 and action in {"FORWARD", "BACKWARD"}:
                     self._step_timed_linear()
+                    self._process_rl_residual(step)
                     return
 
                 # Encoder mode
@@ -322,10 +345,57 @@ class GridController:
                     return
                 self._check_stall(progress)
                 if self.state != GridState.STOPPED:
-                    self._send_action(step["action"])
+                    self._send_action(action)
+                    self._process_rl_residual(step)
+
             except Exception as exc:
                 self._safe_stop(f"controller_error:{type(exc).__name__}")
                 raise
+
+    def _process_rl_residual(self, step: dict) -> None:
+        """Run RL residual adapter during linear motion segments if enabled."""
+        if self.rl_adapter is None:
+            return
+        action = step.get("action", "")
+        if action not in {"FORWARD", "BACKWARD"}:
+            return
+
+        try:
+            target_ticks = float(step.get("target_ticks", 0))
+            if target_ticks > 0 and self._latest_encoders:
+                completed = min(
+                    abs(float(self._latest_encoders["left"])),
+                    abs(float(self._latest_encoders["right"])),
+                )
+            else:
+                completed = 0.0
+                target_ticks = 1.0
+
+            odom = self._latest_odometry or {}
+            us = self._latest_ultrasonic or {}
+            front_us = us.get("front")
+            if front_us is None:
+                front_us = us.get("center", -1.0)
+
+            result = self.rl_adapter.step(
+                is_forward=(action == "FORWARD"),
+                completed_distance=completed,
+                target_distance=target_ticks,
+                target_heading_deg=0.0,
+                fused_heading_deg=float(odom.get("heading_fused_deg", 0.0)),
+                left_distance_cm=float(odom.get("left_cm", 0.0)),
+                right_distance_cm=float(odom.get("right_cm", 0.0)),
+                front_ultrasonic_cm=float(front_us),
+                current_action=action,
+            )
+
+            if result and getattr(result, "apply_to_motor", False):
+                pwm = int(getattr(result, "residual_pwm", 0))
+                send_rl = getattr(self.serial, "send_rl_correction", None)
+                if callable(send_rl):
+                    send_rl(pwm)
+        except Exception as exc:
+            logger.warning("RL adapter evaluation failed: %s", exc)
 
     def _current_steps(self) -> list[dict]:
         if self.plan is None or self.phase not in {"OUTBOUND", "RETURNING"}:
@@ -488,15 +558,19 @@ class GridController:
         self._latest_ultrasonic = dict(readings)
 
         step = self._current_step()
+        # For BACKWARD movement, front ultrasonic is not in the direction of motion;
+        # reverse safety relies on corridor clearing and segment timeout.
         if step is not None and step.get("action") == "BACKWARD":
-            directions = ("left", "right")
-        else:
-            directions = ("left", "center", "right")
+            return True
 
-        for direction in directions:
-            if float(readings[direction]) < self.obstacle_distance_cm:
-                self._safe_stop(f"{direction}_obstacle")
-                return False
+        # For FORWARD motion, check single front ultrasonic sensor
+        front_val = readings.get("front")
+        if front_val is None and "center" in readings:
+            front_val = readings["center"]
+
+        if front_val is not None and float(front_val) < self.obstacle_distance_cm:
+            self._safe_stop("center_obstacle")
+            return False
         return True
 
     @staticmethod
@@ -513,6 +587,9 @@ class GridController:
     def _valid_ultrasonic(readings: Any) -> bool:
         if not isinstance(readings, dict):
             return False
+        if "front" in readings:
+            val = readings["front"]
+            return isinstance(val, (int, float)) and np.isfinite(val) and val >= 0
         try:
             values = [float(readings[key]) for key in ("left", "center", "right")]
         except (KeyError, TypeError, ValueError):

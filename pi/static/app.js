@@ -398,14 +398,29 @@ function updateUI(data) {
     } else {
       window.currentStudent = data.current_student;
     }
+  }
+
+  const telemetry = data.telemetry || {};
   const ultrasonic = telemetry.ultrasonic || {};
   setHealth('ultrasonic-health', ultrasonic.status || 'Waiting');
-  document.getElementById('ultrasonic-detail').textContent =
-    `L ${formatReading(ultrasonic.left)} · C ${formatReading(ultrasonic.center)} · R ${formatReading(ultrasonic.right)}`;
+  const frontVal = ultrasonic.front !== undefined ? ultrasonic.front : (ultrasonic.center !== undefined ? ultrasonic.center : '—');
+  const usElem = document.getElementById('ultrasonic-detail');
+  if (usElem) {
+    usElem.textContent = `Front ${formatReading(frontVal)} cm`;
+  }
+
+  const rlStatus = data.rl_status || {};
+  const rlBadge = document.getElementById('rl-mode-badge');
+  if (rlBadge) {
+    rlBadge.textContent = rlStatus.mode || 'disabled';
+  }
+
+  updateTimeline(state, data.phase);
 }
 
 function setHealth(id, status) {
   const element = document.getElementById(id);
+  if (!element) return;
   const normalised = String(status);
   element.textContent = normalised;
   element.dataset.health = /stop|error|blocked|stall/i.test(normalised) ? 'bad' : 'ok';
@@ -417,22 +432,32 @@ function formatReading(value) {
 
 function updateTimeline(state, phase = null) {
   const ids = ['task-query', 'task-plan', 'task-navigate', 'task-arrive', 'task-return'];
-  ids.forEach(id => document.getElementById(id).classList.remove('active', 'done'));
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('active', 'done');
+  });
   const completeThrough = index => {
-    for (let i = 0; i <= index; i += 1) document.getElementById(ids[i]).classList.add('done');
+    for (let i = 0; i <= index; i += 1) {
+      const el = document.getElementById(ids[i]);
+      if (el) el.classList.add('done');
+    }
   };
 
   if (state === 'IDLE' || state === 'STOPPED') {
-    document.getElementById('task-query').classList.add('active');
+    const el = document.getElementById('task-query');
+    if (el) el.classList.add('active');
   } else if (phase === 'RETURNING' || state === 'RETURNING') {
     completeThrough(3);
-    document.getElementById('task-return').classList.add('active');
+    const el = document.getElementById('task-return');
+    if (el) el.classList.add('active');
   } else if (state === 'MOVING' || state === 'TURNING') {
     completeThrough(1);
-    document.getElementById('task-navigate').classList.add('active');
+    const el = document.getElementById('task-navigate');
+    if (el) el.classList.add('active');
   } else if (state === 'ARRIVED' || state === 'DWELLING') {
     completeThrough(2);
-    document.getElementById('task-arrive').classList.add('active');
+    const el = document.getElementById('task-arrive');
+    if (el) el.classList.add('active');
   } else if (state === 'DOCKED') {
     completeThrough(4);
   }
@@ -440,25 +465,21 @@ function updateTimeline(state, phase = null) {
   const searchStep = document.getElementById('journey-search');
   const navigateStep = document.getElementById('journey-navigate');
   const arriveStep = document.getElementById('journey-arrive');
-  [searchStep, navigateStep, arriveStep].forEach(step => step.classList.remove('active', 'done'));
+  [searchStep, navigateStep, arriveStep].forEach(step => {
+    if (step) step.classList.remove('active', 'done');
+  });
   if (state === 'IDLE' || state === 'STOPPED') {
-    searchStep.classList.add('active');
+    if (searchStep) searchStep.classList.add('active');
   } else if (state === 'MOVING' || state === 'TURNING' || state === 'RETURNING') {
-    searchStep.classList.add('done');
-    navigateStep.classList.add('active');
+    if (searchStep) searchStep.classList.add('done');
+    if (navigateStep) navigateStep.classList.add('active');
   } else {
-    searchStep.classList.add('done');
-    navigateStep.classList.add('done');
-    arriveStep.classList.add(state === 'DOCKED' ? 'done' : 'active');
+    if (searchStep) searchStep.classList.add('done');
+    if (navigateStep) navigateStep.classList.add('done');
+    if (arriveStep) arriveStep.classList.add(state === 'DOCKED' ? 'done' : 'active');
   }
 }
 
-function speak(message) {
-  if ('speechSynthesis' in window) {
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(new SpeechSynthesisUtterance(message));
-  }
-}
 
 function showToast(message) {
   const toast = document.getElementById('toast');

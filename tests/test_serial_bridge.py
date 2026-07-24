@@ -82,14 +82,22 @@ def test_bridge_exposes_every_method_required_by_robot_controller():
         assert callable(getattr(bridge, method_name))
 
 
-def test_ultrasonic_ignores_status_line_and_parses_three_values():
-    fake = FakeSerialPort([b"READY\r\n", b"US:43.2,18.7,55.1\r\n"])
+def test_ultrasonic_ignores_status_line_and_parses_single_front_value():
+    fake = FakeSerialPort([b"READY\r\n", b"US:18.7\r\n"])
     bridge = make_bridge(fake)
 
     readings = bridge.get_ultrasonic()
 
     assert fake.writes == [b"CHECK\n"]
-    assert readings == {"left": 43.2, "center": 18.7, "right": 55.1}
+    assert readings == {"front": 18.7}
+
+
+def test_send_rl_correction_command():
+    fake = FakeSerialPort()
+    bridge = make_bridge(fake)
+
+    bridge.send_rl_correction(7)
+    assert fake.writes == [b"SET_RL_CORRECTION:7\n"]
 
 
 @pytest.mark.parametrize(
@@ -97,11 +105,10 @@ def test_ultrasonic_ignores_status_line_and_parses_three_values():
     [
         "",
         "READY",
-        "US:1,2",
-        "US:1,two,3",
-        "US:-1,2,3",
-        "US:nan,2,3",
-        "US:inf,2,3",
+        "US:1,two",
+        "US:-1",
+        "US:nan",
+        "US:inf",
     ],
 )
 def test_ultrasonic_parser_rejects_invalid_or_unsafe_values(line):
@@ -118,7 +125,7 @@ def test_encoder_reset_and_read_protocol():
 
 def test_fused_odometry_configuration_and_telemetry_protocol():
     fake = FakeSerialPort(
-        [b"FUSION:OK\r\n", b"ODOM:12,11,6.0,5.5,-2.1,-1.8,-1.815,4\r\n"]
+        [b"FUSION:OK\r\n", b"ODOM:12,11,6.0,5.5,-2.1,-1.8,-1.815,4,3\r\n"]
     )
     bridge = make_bridge(fake)
 
@@ -139,6 +146,7 @@ def test_fused_odometry_configuration_and_telemetry_protocol():
         "heading_imu_deg": -1.8,
         "heading_fused_deg": -1.815,
         "speed_correction": 4,
+        "rl_correction": 3,
     }
     assert fake.writes == [
         b"SET_FUSION:0.9500,2.000000,2.000000,14.500,2.000,40\n",

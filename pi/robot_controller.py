@@ -242,7 +242,7 @@ class RobotController:
         readings = self._read_safe_distances(check_front=False)
         if readings is None:
             return
-        center = float(readings["center"])
+        center = float(readings.get("front", readings.get("center", 999.0)))
         target = self._target_detection(detections)
         if target is None:
             if center < self.obstacle_distance_cm:
@@ -262,6 +262,9 @@ class RobotController:
             else:
                 self.serial.send_stop()
                 self.state = State.ALIGNING
+            return
+        if center < self.obstacle_distance_cm:
+            self._safe_stop("front_obstacle")
             return
         if center <= self._arrival_distance_cm():
             self._complete_current_waypoint()
@@ -346,17 +349,11 @@ class RobotController:
         if not self._valid_readings(readings):
             self._safe_stop("ultrasonic_unavailable")
             return None
-        left, center, right = (float(readings[key]) for key in ("left", "center", "right"))
-        if left < self.obstacle_distance_cm:
-            self._safe_stop("side_obstacle" if self.mission is None else "left_obstacle")
-            return None
-        if right < self.obstacle_distance_cm:
-            self._safe_stop("side_obstacle" if self.mission is None else "right_obstacle")
-            return None
-        if check_front and center < self.obstacle_distance_cm:
+        front_val = float(readings.get("front", readings.get("center", 999.0)))
+        if check_front and front_val < self.obstacle_distance_cm:
             self._safe_stop("front_obstacle")
             return None
-        return readings
+        return {"front": front_val, "center": front_val}
 
     def _reset_detection_counters(self) -> None:
         self._target_seen_frames = 0
@@ -367,6 +364,9 @@ class RobotController:
     def _valid_readings(readings: Any) -> bool:
         if not isinstance(readings, dict):
             return False
+        if "front" in readings:
+            val = readings["front"]
+            return isinstance(val, (int, float)) and np.isfinite(val) and val >= 0
         try:
             values = [float(readings[key]) for key in ("left", "center", "right")]
         except (KeyError, TypeError, ValueError):

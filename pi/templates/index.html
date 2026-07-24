@@ -126,7 +126,7 @@
       </div>
     </section>
 
-    <!-- Existing loan status (borrowing-only MVP; returns are out of scope) -->
+    <!-- Existing loan status -->
     <section id="return-panel" class="panel card--primary return-panel-container" style="display: none;">
       <div class="panel-heading"><h2>Borrowing Status</h2></div>
       <div class="return-body">
@@ -287,7 +287,6 @@
             </div>
           </div>
 
-
           <!-- Distance Progress Sub-Card -->
           <div class="progress-subcard">
             <div class="progress-header">
@@ -304,7 +303,7 @@
       </div>
     </section>
 
-    <!-- Right Column: Live Camera + Robot Status + Trending Books -->
+    <!-- Right Column: Live Camera + Robot Status + Student Portal + Trending Books -->
     <aside class="right-column">
       <section class="panel camera-panel">
         <div class="panel-heading"><h2 id="camera-heading">Live Camera</h2><span class="live-dot">&bull; LIVE</span></div>
@@ -312,7 +311,6 @@
           <img id="camera-feed" src="/video_feed" alt="Live camera feed"
                onerror="this.src='/static/library_aisle.svg'" />
           <span id="overlay-state-badge" class="camera-state">IDLE</span>
-          <!-- Floating Badge (3B) in Top-Right Corner -->
           <span id="camera-target" class="camera-target">3B</span>
         </div>
       </section>
@@ -322,7 +320,10 @@
         <div class="sensor-grid">
           <div><span>Encoders</span><b id="encoder-health">OK</b><small id="encoder-detail">L 10000 &middot; R 10000</small></div>
           <div><span>Fused Heading</span><b id="imu-health">OK</b><small id="imu-detail">IMU + encoders</small></div>
-          <div><span>Ultrasonic</span><b id="ultrasonic-health">OK</b><small id="ultrasonic-detail">L 100 &middot; C 100 &middot; R 100</small></div>
+          <div><span>Ultrasonic</span><b id="ultrasonic-health">OK</b><small id="ultrasonic-detail">Front 100 cm</small></div>
+        </div>
+        <div id="rl-status-row" class="status-message" style="margin-top:6px;font-size:0.85em;color:#64748b;">
+          <span>RL Plugin:</span> <b id="rl-mode-badge">disabled</b>
         </div>
         <div class="status-message"><span id="status-icon">&bull;</span><div><b id="status-state">IDLE</b><small id="status-desc">Enter a book to begin</small></div></div>
         <div id="reason-text" class="reason-text"></div>

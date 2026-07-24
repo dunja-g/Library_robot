@@ -90,6 +90,10 @@ class SerialBridge:
         """Request a self-terminating IMU turn (defaults to 180 degrees)."""
         return self._send("TURN_UTURN" if degrees is None else f"TURN_UTURN:{degrees:.1f}")
 
+    def send_rl_correction(self, residual_pwm: int) -> bool:
+        """Send SAC-based residual PWM correction to Arduino Mega."""
+        return self._send(f"SET_RL_CORRECTION:{int(residual_pwm)}")
+
     def set_trim(self, left_speed_reduction: int) -> bool:
         """Dynamically configure Arduino motor compensation for drift."""
         return self._send(f"SET_TRIM:{left_speed_reduction}")
@@ -161,22 +165,34 @@ class SerialBridge:
 
     @staticmethod
     def parse_ultrasonic(line: str) -> dict[str, float] | None:
-        """Parse ``US:left,center,right`` and reject unsafe values."""
+        """Parse single front ultrasonic sensor reading ``US:front``.
+
+        Also supports backwards compatibility with legacy 3-sensor format ``US:left,center,right``.
+        """
         if not line.startswith("US:"):
             return None
         parts = line[3:].split(",")
-        if len(parts) != 3:
-            return None
-        try:
-            values = [float(part) for part in parts]
-        except ValueError:
-            return None
-        if not all(math.isfinite(value) and value >= 0 for value in values):
-            return None
-        return dict(zip(("left", "center", "right"), values))
+        if len(parts) == 1:
+            try:
+                val = float(parts[0])
+            except ValueError:
+                return None
+            if not (math.isfinite(val) and val >= 0):
+                return None
+            return {"front": val}
+        elif len(parts) == 3:
+            try:
+                values = [float(p) for p in parts]
+            except ValueError:
+                return None
+            if not all(math.isfinite(v) and v >= 0 for v in values):
+                return None
+            # Return single front reading (center sensor in 3-sensor layout)
+            return {"front": values[1]}
+        return None
 
     def get_ultrasonic(self, response_lines: int = 3) -> dict[str, float] | None:
-        """Request all three sensors, ignoring unrelated status lines."""
+        """Request front ultrasonic reading, ignoring unrelated status lines."""
         if response_lines <= 0:
             raise ValueError("response_lines must be positive")
         with self._lock:
@@ -235,16 +251,17 @@ class SerialBridge:
 
     @staticmethod
     def parse_odometry(line: str) -> dict[str, float | int] | None:
-        """Parse fused ``ODOM`` telemetry emitted by the Mega."""
+        """Parse fused ``ODOM`` telemetry (supports 8-field or 9-field format)."""
         if not line.startswith("ODOM:"):
             return None
         parts = line[5:].split(",")
-        if len(parts) != 8:
+        if len(parts) not in (8, 9):
             return None
         try:
             left_ticks, right_ticks = int(parts[0]), int(parts[1])
             floating = [float(value) for value in parts[2:7]]
             correction = int(parts[7])
+            rl_correction = int(parts[8]) if len(parts) == 9 else 0
         except ValueError:
             return None
         if not all(math.isfinite(value) for value in floating):
@@ -258,6 +275,7 @@ class SerialBridge:
             "heading_imu_deg": floating[3],
             "heading_fused_deg": floating[4],
             "speed_correction": correction,
+            "rl_correction": rl_correction,
         }
 
     def get_odometry(self, response_lines: int = 3) -> dict[str, float | int] | None:

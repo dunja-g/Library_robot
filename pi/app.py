@@ -223,8 +223,11 @@ if USE_MOCK:
                 "speed_correction": 0,
             }
 
+        def send_rl_correction(self, _pwm=0):
+            return True
+
         def get_ultrasonic(self):
-            return {"left": 100, "center": 100, "right": 100}
+            return {"front": 100}
 
     class MockCamera:
         COLOURS = {
@@ -270,12 +273,20 @@ if USE_MOCK:
                 )
                 time.sleep(0.05)
 
+    try:
+        from .rl_residual_adapter import RLResidualAdapter
+    except ImportError:
+        from rl_residual_adapter import RLResidualAdapter
+
+    rl_adapter = RLResidualAdapter.from_env()
+
     if grid_geometry.missing_fields:
         grid_geometry = GridGeometry(80, 75, 35)
     controller = GridController(
         MockEncoderSerial(),
         destination_dwell_seconds=0.3,
         turn_source=GRID_TURN_SOURCE,
+        rl_adapter=rl_adapter,
     )
     camera = MockCamera()
     config = None
@@ -325,6 +336,7 @@ else:
             os.getenv("LIBRARY_ROBOT_ENCODER_STALL_SECONDS", "2")
         ),
         turn_source=GRID_TURN_SOURCE,
+        rl_adapter=rl_adapter,
     )
 
     qr_scanner = QRScanner(

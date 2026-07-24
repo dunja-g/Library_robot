@@ -1,5 +1,5 @@
 // Library Robot - Arduino Mega firmware
-// Motor control, three HC-SR04 sensors, serial protocol, and watchdog stop.
+// Motor control, single front HC-SR04 sensor, fused odometry, RL residual heading correction, and watchdog stop.
 
 #include <AFMotor.h>
 #include <string.h>
@@ -23,17 +23,15 @@ int maxHeadingCorrection = 30;
 const unsigned long COMMAND_TIMEOUT_MS = 2000;
 const unsigned long IMU_TURN_TIMEOUT_MS = 5000;
 const unsigned long HEADING_CONTROL_INTERVAL_US = 10000;
+const unsigned long RL_COMMAND_TIMEOUT_MS = 300;
+const int MAX_RL_PWM = 10;
 
-// Confirmed Arduino Mega ultrasonic pins.
-const uint8_t TRIG_LEFT = 25;
-const uint8_t ECHO_LEFT = 24;
-const uint8_t TRIG_CENTER = 23;
-const uint8_t ECHO_CENTER = 22;
-const uint8_t TRIG_RIGHT = 27;
-const uint8_t ECHO_RIGHT = 26;
+// Confirmed Arduino Mega single front ultrasonic pins.
+const uint8_t TRIG_FRONT = 23;
+const uint8_t ECHO_FRONT = 22;
 
 // One encoder pulse input per drivetrain side. Mega pins 18 and 19 support
-// hardware interrupts. Change these two constants to match the final wiring.
+// hardware interrupts.
 const uint8_t ENCODER_LEFT_PIN = 18;
 const uint8_t ENCODER_RIGHT_PIN = 19;
 volatile long encoderLeftTicks = 0;
@@ -55,6 +53,8 @@ float headingFusedDeg = 0.0;
 float leftDistanceCm = 0.0;
 float rightDistanceCm = 0.0;
 int headingCorrection = 0;
+int rlCorrection = 0;
+unsigned long lastRlCommandMs = 0;
 int8_t linearMotionDirection = 0;  // 1=forward, -1=backward, 0=not linear
 int8_t leftEncoderDirection = 1;
 int8_t rightEncoderDirection = 1;
@@ -103,11 +103,13 @@ void stopAll() {
   motorsActive = false;
   linearMotionDirection = 0;
   headingCorrection = 0;
+  rlCorrection = 0;
 }
 
 void cancelImuTurn() {
   imuTurnActive = false;
   imuTurnState = 0;
+  rlCorrection = 0;
 }
 
 void moveStraight(uint8_t direction) {
@@ -121,6 +123,7 @@ void moveStraight(uint8_t direction) {
 
 void rotateLeft() {
   linearMotionDirection = 0;
+  rlCorrection = 0;
   setLeft(BACKWARD, ROTATE_SPEED);
   setRight(FORWARD, ROTATE_SPEED);
   motorsActive = true;
@@ -128,6 +131,7 @@ void rotateLeft() {
 
 void rotateRight() {
   linearMotionDirection = 0;
+  rlCorrection = 0;
   setLeft(FORWARD, ROTATE_SPEED);
   setRight(BACKWARD, ROTATE_SPEED);
   motorsActive = true;
@@ -187,6 +191,7 @@ void resetMotionEstimate() {
   leftDistanceCm = 0.0;
   rightDistanceCm = 0.0;
   headingCorrection = 0;
+  rlCorrection = 0;
   lastGyroUs = micros();
   lastHeadingControlUs = lastGyroUs;
 }
@@ -201,19 +206,31 @@ void applyStraightClosedLoop() {
     maxHeadingCorrection
   );
 
+  // Check RL correction timeout (300 ms)
+  if (millis() - lastRlCommandMs > RL_COMMAND_TIMEOUT_MS) {
+    rlCorrection = 0;
+  }
+
+  // Combine base correction + RL residual, bounded to maxHeadingCorrection
+  int totalCorrection = constrain(
+    headingCorrection + rlCorrection,
+    -maxHeadingCorrection,
+    maxHeadingCorrection
+  );
+
   int leftBase = FORWARD_SPEED - leftSpeedReduction;
   int rightBase = FORWARD_SPEED + leftSpeedReduction;
   int leftSpeed;
   int rightSpeed;
   if (linearMotionDirection > 0) {
-    leftSpeed = leftBase + headingCorrection;
-    rightSpeed = rightBase - headingCorrection;
+    leftSpeed = leftBase + totalCorrection;
+    rightSpeed = rightBase - totalCorrection;
     setLeft(FORWARD, constrain(leftSpeed, 0, 255));
     setRight(FORWARD, constrain(rightSpeed, 0, 255));
   } else {
     // Steering polarity reverses when both wheels drive backward.
-    leftSpeed = leftBase - headingCorrection;
-    rightSpeed = rightBase + headingCorrection;
+    leftSpeed = leftBase - totalCorrection;
+    rightSpeed = rightBase + totalCorrection;
     setLeft(BACKWARD, constrain(leftSpeed, 0, 255));
     setRight(BACKWARD, constrain(rightSpeed, 0, 255));
   }
@@ -302,21 +319,11 @@ float readDistanceCm(uint8_t triggerPin, uint8_t echoPin) {
 }
 
 void reportUltrasonic() {
-  float left = readDistanceCm(TRIG_LEFT, ECHO_LEFT);
-  updateImuTurn();
-  delay(5);
-  float center = readDistanceCm(TRIG_CENTER, ECHO_CENTER);
-  updateImuTurn();
-  delay(5);
-  float right = readDistanceCm(TRIG_RIGHT, ECHO_RIGHT);
+  float front = readDistanceCm(TRIG_FRONT, ECHO_FRONT);
   updateImuTurn();
 
   Serial.print("US:");
-  Serial.print(left, 1);
-  Serial.print(",");
-  Serial.print(center, 1);
-  Serial.print(",");
-  Serial.println(right, 1);
+  Serial.println(front, 1);
 }
 
 void resetEncoders() {
@@ -359,7 +366,9 @@ void reportOdometry() {
   Serial.print(",");
   Serial.print(headingFusedDeg, 3);
   Serial.print(",");
-  Serial.println(headingCorrection);
+  Serial.print(headingCorrection);
+  Serial.print(",");
+  Serial.println(rlCorrection);
 }
 
 void handleCommand(const char *command) {
@@ -408,6 +417,16 @@ void handleCommand(const char *command) {
     reportOdometry();
   } else if (strcmp(command, "ENC_RESET") == 0) {
     resetEncoders();
+  } else if (strncmp(command, "SET_RL_CORRECTION:", 18) == 0) {
+    int requestedPwm = atoi(command + 18);
+    if (linearMotionDirection != 0 && motorsActive) {
+      rlCorrection = constrain(requestedPwm, -MAX_RL_PWM, MAX_RL_PWM);
+      lastRlCommandMs = millis();
+      Serial.println("RL_CORRECTION:OK");
+    } else {
+      rlCorrection = 0;
+      Serial.println("RL_CORRECTION:IGNORED_NOT_LINEAR");
+    }
   } else if (strncmp(command, "SET_TRIM:", 9) == 0) {
     leftSpeedReduction = atoi(command + 9);
   } else if (strncmp(command, "SET_FUSION:", 11) == 0) {
@@ -477,12 +496,8 @@ void readSerialCommands() {
 
 void setup() {
   Serial.begin(115200);
-  pinMode(TRIG_LEFT, OUTPUT);
-  pinMode(ECHO_LEFT, INPUT);
-  pinMode(TRIG_CENTER, OUTPUT);
-  pinMode(ECHO_CENTER, INPUT);
-  pinMode(TRIG_RIGHT, OUTPUT);
-  pinMode(ECHO_RIGHT, INPUT);
+  pinMode(TRIG_FRONT, OUTPUT);
+  pinMode(ECHO_FRONT, INPUT);
   pinMode(ENCODER_LEFT_PIN, INPUT_PULLUP);
   pinMode(ENCODER_RIGHT_PIN, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_PIN), onLeftEncoderPulse, RISING);

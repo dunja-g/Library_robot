@@ -4,6 +4,9 @@ from pi.encoder_navigation import GridController, GridState
 from pi.grid_layout import EncoderCalibration, GridGeometry, build_grid_route
 
 
+from pi.grid_layout import EncoderCalibration, GridGeometry, build_grid_route
+
+
 class FakeClock:
     def __init__(self): self.now = 0.0
     def __call__(self): return self.now
@@ -13,7 +16,7 @@ class FakeSerial:
     def __init__(self):
         self.commands = []
         self.encoders = {"left": 0, "right": 0}
-        self.ultrasonic = {"left": 100, "center": 100, "right": 100}
+        self.ultrasonic = {"front": 100}
         self.reset_ok = True
         self.motion_ok = True
         self.turn_status = "ACTIVE"
@@ -22,6 +25,7 @@ class FakeSerial:
     def send_backward(self): self.commands.append("BACKWARD"); return self.motion_ok
     def send_rotate_left(self): self.commands.append("ROTATE_LEFT"); return True
     def send_rotate_right(self): self.commands.append("ROTATE_RIGHT"); return True
+    def send_rl_correction(self, pwm): self.commands.append(f"SET_RL_CORRECTION:{pwm}"); return True
     def reset_encoders(self):
         self.commands.append("ENC_RESET")
         self.encoders = {"left": 0, "right": 0}
@@ -38,6 +42,7 @@ class FakeSerial:
             "heading_imu_deg": 2.0,
             "heading_fused_deg": 1.95,
             "speed_correction": -4,
+            "rl_correction": 0,
         }
     def get_ultrasonic(self): return self.ultrasonic
     def send_turn_left(self, _degrees=None): self.commands.append("TURN_LEFT"); return True
@@ -85,14 +90,14 @@ def test_full_encoder_route_reaches_box_then_dock():
 
 def test_obstacle_stops_before_encoder_motion_continues():
     controller, serial, _clock = make_controller()
-    serial.ultrasonic["center"] = 10
+    serial.ultrasonic = {"front": 10}
     controller.step()
     assert controller.get_state() == GridState.STOPPED.value
     assert controller.get_status()["reason"] == "center_obstacle"
     assert serial.commands[-1] == "STOP"
 
 
-def test_reverse_keeps_side_ultrasonic_safety_active():
+def test_reverse_ignores_front_ultrasonic_for_motion():
     controller, serial, clock = make_controller()
     for _ in range(3):
         complete_step(controller, serial)
@@ -100,11 +105,11 @@ def test_reverse_keeps_side_ultrasonic_safety_active():
     controller.step()
     assert controller.get_status()["current_action"] == "BACKWARD"
 
-    serial.ultrasonic["left"] = 10
+    # Front obstacle in reverse is ignored because robot is backing away from shelf
+    serial.ultrasonic = {"front": 10}
     controller.step()
 
-    assert controller.get_state() == GridState.STOPPED.value
-    assert controller.get_status()["reason"] == "left_obstacle"
+    assert controller.get_state() == GridState.MOVING.value
 
 
 def test_reverse_ignores_front_shelf_but_requires_valid_sensor_data():
@@ -175,7 +180,7 @@ def test_status_exposes_dashboard_sensor_telemetry():
         "distance_cm": 2.5,
     }
     assert telemetry["ultrasonic"] == {
-        "status": "OK", "left": 100, "center": 100, "right": 100
+        "status": "OK", "front": 100
     }
     assert telemetry["imu"]["heading_encoder_deg"] == 1.0
     assert telemetry["imu"]["heading_imu_deg"] == 2.0

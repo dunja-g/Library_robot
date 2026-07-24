@@ -155,15 +155,15 @@ def test_short_target_loss_during_alignment_is_tolerated():
     assert serial.commands[-1] == "STOP"
 
 
-def test_side_obstacle_triggers_stopped():
+def test_front_obstacle_triggers_stopped():
     controller, serial, detector, _clock = make_controller()
     controller.request_book(1)
     controller.state = State.APPROACHING
     detector.detections = [detection()]
-    serial.readings["left"] = 10
+    serial.readings = {"front": 10}
     controller.step()
 
-    assert controller.get_status()["reason"] == "side_obstacle"
+    assert controller.get_status()["reason"] == "front_obstacle"
     assert controller.get_state() == State.STOPPED.value
 
 

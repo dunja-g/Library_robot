@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 FIRMWARE = (
     Path(__file__).resolve().parents[1]
     / "arduino"
@@ -24,6 +23,7 @@ def test_firmware_contains_full_serial_protocol():
         "ODOMETRY",
         "ENC_RESET",
         "SET_FUSION:",
+        "SET_RL_CORRECTION:",
     ):
         assert f'"{command}"' in FIRMWARE
     assert 'Serial.print("US:")' in FIRMWARE
@@ -34,12 +34,8 @@ def test_firmware_contains_full_serial_protocol():
 
 def test_firmware_uses_confirmed_mega_ultrasonic_pins():
     for declaration in (
-        "TRIG_LEFT = 25",
-        "ECHO_LEFT = 24",
-        "TRIG_CENTER = 23",
-        "ECHO_CENTER = 22",
-        "TRIG_RIGHT = 27",
-        "ECHO_RIGHT = 26",
+        "TRIG_FRONT = 23",
+        "ECHO_FRONT = 22",
     ):
         assert declaration in FIRMWARE
 
