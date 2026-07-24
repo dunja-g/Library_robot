@@ -44,7 +44,7 @@ class _Picamera2Backend:
         configuration = self._camera.create_video_configuration(
             main={"size": (width, height), "format": "RGB888"},
             controls={"FrameRate": fps},
-            buffer_count=2,
+            buffer_count=1,
         )
         self._camera.configure(configuration)
 
@@ -57,6 +57,52 @@ class _Picamera2Backend:
     def stop(self) -> None:
         self._camera.stop()
         self._camera.close()
+
+
+class _OpenCVBackend:
+    """USB camera backend using OpenCV VideoCapture with buffer size = 1."""
+
+    def __init__(self, width: int, height: int, fps: int, device_index: int = 0):
+        self.width = width
+        self.height = height
+        self.fps = fps
+        self.device_index = device_index
+        self._cap: cv2.VideoCapture | None = None
+
+    def start(self) -> None:
+        self._cap = cv2.VideoCapture(self.device_index)
+        if not self._cap.isOpened():
+            raise CameraError(f"Cannot open USB camera at index {self.device_index}")
+        # Force V4L2 buffer size to 1 to eliminate internal frame backlog/delay
+        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+        self._cap.set(cv2.CAP_PROP_FPS, self.fps)
+
+    def capture_array(self) -> np.ndarray:
+        if self._cap is None or not self._cap.isOpened():
+            raise CameraError("OpenCV camera is not open")
+        ret, frame = self._cap.read()
+        if not ret or frame is None:
+            raise CameraError("Failed to read frame from OpenCV camera")
+        return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+    def stop(self) -> None:
+        if self._cap is not None:
+            self._cap.release()
+            self._cap = None
+
+
+def _create_default_backend(width: int, height: int, fps: int) -> CameraBackend:
+    try:
+        return _Picamera2Backend(width, height, fps)
+    except Exception:
+        try:
+            return _OpenCVBackend(width, height, fps)
+        except Exception as exc:
+            raise CameraError(
+                "Neither Picamera2 nor OpenCV camera backends could be initialized"
+            ) from exc
 
 
 class Camera:
@@ -83,7 +129,7 @@ class Camera:
         self.height = int(height)
         self.fps = int(fps)
         self.jpeg_quality = int(jpeg_quality)
-        self._backend = backend or _Picamera2Backend(width, height, fps)
+        self._backend = backend or _create_default_backend(width, height, fps)
 
         # Shared state — single writer (capture thread), many readers
         self._lock = threading.Lock()

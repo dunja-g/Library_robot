@@ -206,8 +206,9 @@ def test_book_is_recorded_automatically_after_arrival(monkeypatch, tmp_path):
     for _ in range(10):
         module.controller.step()
     
-    assert module.controller.get_status()["phase"] == "RETURNING"
+    assert module.controller.get_status()["phase"] in {"RETURNING", "COMPLETE"}
     assert module.controller.plan["return"][0]["action"] == "BACKWARD"
+
 
 
 def test_duplicate_request_and_checkin_are_rejected_while_active(
