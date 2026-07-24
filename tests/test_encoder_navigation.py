@@ -13,9 +13,11 @@ class FakeSerial:
         self.encoders = {"left": 0, "right": 0}
         self.ultrasonic = {"left": 100, "center": 100, "right": 100}
         self.reset_ok = True
+        self.motion_ok = True
         self.turn_status = "ACTIVE"
     def send_stop(self): self.commands.append("STOP"); return True
-    def send_forward(self): self.commands.append("FORWARD"); return True
+    def send_forward(self): self.commands.append("FORWARD"); return self.motion_ok
+    def send_backward(self): self.commands.append("BACKWARD"); return self.motion_ok
     def send_rotate_left(self): self.commands.append("ROTATE_LEFT"); return True
     def send_rotate_right(self): self.commands.append("ROTATE_RIGHT"); return True
     def reset_encoders(self):
@@ -24,9 +26,9 @@ class FakeSerial:
         return self.reset_ok
     def get_encoders(self): return self.encoders
     def get_ultrasonic(self): return self.ultrasonic
-    def send_turn_left(self): self.commands.append("TURN_LEFT"); return True
-    def send_turn_right(self): self.commands.append("TURN_RIGHT"); return True
-    def send_turn_uturn(self): self.commands.append("TURN_UTURN"); return True
+    def send_turn_left(self, _degrees=None): self.commands.append("TURN_LEFT"); return True
+    def send_turn_right(self, _degrees=None): self.commands.append("TURN_RIGHT"); return True
+    def send_turn_uturn(self, _degrees=None): self.commands.append("TURN_UTURN"); return True
     def get_turn_status(self): return self.turn_status
 
 
@@ -61,7 +63,7 @@ def test_full_encoder_route_reaches_box_then_dock():
     clock.now = 1
     controller.step()
     assert controller.get_status()["phase"] == "RETURNING"
-    for _ in range(4):
+    for _ in range(3):
         complete_step(controller, serial)
     assert controller.get_state() == GridState.DOCKED.value
     assert controller.get_status()["reason"] == "dock_reached"
@@ -76,11 +78,55 @@ def test_obstacle_stops_before_encoder_motion_continues():
     assert serial.commands[-1] == "STOP"
 
 
+def test_reverse_keeps_side_ultrasonic_safety_active():
+    controller, serial, clock = make_controller()
+    for _ in range(3):
+        complete_step(controller, serial)
+    clock.now = 1
+    controller.step()
+    assert controller.get_status()["current_action"] == "BACKWARD"
+
+    serial.ultrasonic["left"] = 10
+    controller.step()
+
+    assert controller.get_state() == GridState.STOPPED.value
+    assert controller.get_status()["reason"] == "left_obstacle"
+
+
+def test_reverse_ignores_front_shelf_but_requires_valid_sensor_data():
+    controller, serial, clock = make_controller()
+    for _ in range(3):
+        complete_step(controller, serial)
+    clock.now = 1
+    controller.step()
+    serial.ultrasonic["center"] = 5
+    controller.step()
+    assert controller.get_state() == GridState.MOVING.value
+
+    serial.ultrasonic = None
+    controller.step()
+    assert controller.get_status()["reason"] == "ultrasonic_unavailable"
+
+
 def test_missing_encoder_data_fails_safe():
     controller, serial, _clock = make_controller()
     serial.encoders = None
     controller.step()
     assert controller.get_status()["reason"] == "encoder_unavailable"
+
+
+def test_serial_motion_command_failure_stops_mission():
+    serial, clock = FakeSerial(), FakeClock()
+    serial.motion_ok = False
+    controller = GridController(serial, clock=clock)
+    plan = build_grid_route(
+        "1A", GridGeometry(10, 10, 5), EncoderCalibration(1, 4, 8)
+    )
+
+    controller.request_grid_mission(plan)
+
+    assert controller.get_state() == GridState.STOPPED.value
+    assert controller.get_status()["reason"] == "serial_command_failed"
 
 
 def test_encoder_stall_is_detected_without_sleeping():

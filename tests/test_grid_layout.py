@@ -26,7 +26,7 @@ def test_grid_route_is_generated_from_late_bound_dimensions():
         {"action": "FORWARD", "target_ticks": 350, "target_seconds": 0.0, "label": "Approach box 3B"},
     ]
     assert [step["action"] for step in route["return"]] == [
-        "UTURN", "FORWARD", "TURN_LEFT", "FORWARD"
+        "BACKWARD", "TURN_LEFT", "BACKWARD"
     ]
 
 
@@ -36,9 +36,9 @@ def test_a_and_b_use_mirrored_turns():
     a_route = build_grid_route("1A", geometry, calibration)
     b_route = build_grid_route("1B", geometry, calibration)
     assert a_route["outbound"][1]["action"] == "TURN_LEFT"
-    assert a_route["return"][2]["action"] == "TURN_RIGHT"
+    assert a_route["return"][1]["action"] == "TURN_RIGHT"
     assert b_route["outbound"][1]["action"] == "TURN_RIGHT"
-    assert b_route["return"][2]["action"] == "TURN_LEFT"
+    assert b_route["return"][1]["action"] == "TURN_LEFT"
 
 
 def test_unmeasured_layout_refuses_to_guess_a_route():

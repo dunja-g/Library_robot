@@ -349,15 +349,17 @@ class GridController:
 
     def _send_action(self, action: str) -> None:
         if action == "FORWARD":
-            self.serial.send_forward()
+            sent = self.serial.send_forward()
         elif action == "BACKWARD":
-            self.serial.send_backward()
+            sent = self.serial.send_backward()
         elif action in {"TURN_LEFT", "UTURN"}:
-            self.serial.send_rotate_left()
+            sent = self.serial.send_rotate_left()
         elif action == "TURN_RIGHT":
-            self.serial.send_rotate_right()
+            sent = self.serial.send_rotate_right()
         else:
             raise ValueError(f"Unsupported grid action: {action}")
+        if not sent:
+            self._safe_stop("serial_command_failed")
 
     def _safety_clear(self) -> bool:
         readings = self.serial.get_ultrasonic()
@@ -366,12 +368,17 @@ class GridController:
             return False
         self._latest_ultrasonic = dict(readings)
 
-        # Reversing blindly is safe because we retrace a known clear path
+        # The chassis has no rear-facing ultrasonic sensor. During reverse we
+        # can still validate all sensor data and enforce both side sensors, but
+        # the front-centre sensor faces the shelf we are backing away from.
+        # The rear corridor therefore must be cleared and supervised.
         step = self._current_step()
         if step is not None and step.get("action") == "BACKWARD":
-            return True
+            directions = ("left", "right")
+        else:
+            directions = ("left", "center", "right")
 
-        for direction in ("left", "center", "right"):
+        for direction in directions:
             if float(readings[direction]) < self.obstacle_distance_cm:
                 self._safe_stop(f"{direction}_obstacle")
                 return False

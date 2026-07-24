@@ -30,9 +30,9 @@ def _env_bool(name: str, default: bool) -> bool:
 
 @dataclass(frozen=True)
 class NavigationConfig:
-    camera_width: int = 480
-    camera_height: int = 360
-    camera_fps: int = 15
+    camera_width: int = 640
+    camera_height: int = 480
+    camera_fps: int = 20
     control_hz: float = 10.0
     align_tolerance_px: int = 30
     stop_distance_cm: float = 35.0

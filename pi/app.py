@@ -87,18 +87,19 @@ if USE_MOCK:
             return True
 
         def send_forward(self): return True
+        def send_backward(self): return True
         def send_rotate_left(self): return True
         def send_rotate_right(self): return True
 
-        def send_turn_left(self):
+        def send_turn_left(self, _degrees=None):
             self.turn_status = "ACTIVE"
             return True
 
-        def send_turn_right(self):
+        def send_turn_right(self, _degrees=None):
             self.turn_status = "ACTIVE"
             return True
 
-        def send_turn_uturn(self):
+        def send_turn_uturn(self, _degrees=None):
             self.turn_status = "ACTIVE"
             return True
 

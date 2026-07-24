@@ -89,6 +89,8 @@ class Camera:
         self._lock = threading.Lock()
         self._latest_frame: np.ndarray | None = None
         self._latest_jpeg: bytes | None = None
+        self._capture_error: str | None = None
+        self._frame_ready = threading.Event()
         self._started = False
         self._closed = False
 
@@ -122,6 +124,7 @@ class Camera:
                 return
             self._started = False
             self._closed = True
+            self._frame_ready.set()
 
         if self._capture_thread and self._capture_thread.is_alive():
             self._capture_thread.join(timeout=2.0)
@@ -150,11 +153,17 @@ class Camera:
 
             try:
                 raw = self._backend.capture_array()
-            except Exception:
+            except Exception as exc:
+                with self._lock:
+                    self._capture_error = str(exc)
+                self._frame_ready.set()
                 time.sleep(0.05)
                 continue
 
             if not isinstance(raw, np.ndarray) or raw.ndim != 3 or raw.shape[2] != 3 or raw.size == 0:
+                with self._lock:
+                    self._capture_error = "Camera backend returned an invalid frame"
+                self._frame_ready.set()
                 time.sleep(0.05)
                 continue
             if raw.dtype != np.uint8:
@@ -174,6 +183,8 @@ class Camera:
             with self._lock:
                 self._latest_frame = frame
                 self._latest_jpeg = jpeg
+                self._capture_error = None
+            self._frame_ready.set()
 
             # Sleep so we hit the target frame rate
             elapsed = time.monotonic() - loop_start
@@ -184,11 +195,20 @@ class Camera:
     # ----------------------------------------------------------------
     # Consumer API
     # ----------------------------------------------------------------
-    def get_frame(self) -> np.ndarray | None:
-        """Return a copy of the latest cached frame, or None."""
+    def get_frame(self, timeout: float = 2.0) -> np.ndarray:
+        """Wait for and return a defensive copy of the latest cached frame."""
         with self._lock:
+            if not self._started or self._closed:
+                raise CameraError("Camera is not running")
+            frame = self._latest_frame
+        if frame is None:
+            self._frame_ready.wait(timeout)
+        with self._lock:
+            if not self._started or self._closed:
+                raise CameraError("Camera is not running")
             if self._latest_frame is None:
-                return None
+                detail = f": {self._capture_error}" if self._capture_error else ""
+                raise CameraError(f"Camera produced no frame{detail}")
             return self._latest_frame.copy()
 
     def get_latest_jpeg(self) -> bytes | None:
@@ -206,7 +226,6 @@ class Camera:
         All browser clients share the same pre-encoded JPEG so the camera
         is only captured once per frame.  The loop is throttled to ``self.fps``.
         """
-        _ = frame_provider  # kept for API compatibility; ignored
         quality = (
             jpeg_quality
             if jpeg_quality is not None
@@ -220,10 +239,22 @@ class Camera:
         while True:
             loop_start = time.monotonic()
 
-            with self._lock:
-                if not self._started:
-                    break
-                jpeg = self._latest_jpeg
+            if frame_provider is None:
+                with self._lock:
+                    if not self._started:
+                        break
+                    jpeg = self._latest_jpeg
+            else:
+                frame = frame_provider()
+                if frame is None:
+                    time.sleep(0.02)
+                    continue
+                success, jpeg_array = cv2.imencode(
+                    ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality]
+                )
+                if not success:
+                    raise CameraError("OpenCV failed to encode the camera frame")
+                jpeg = jpeg_array.tobytes()
 
             if jpeg is None:
                 time.sleep(0.02)
