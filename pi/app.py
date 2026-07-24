@@ -69,18 +69,19 @@ if USE_MOCK:
             return True
 
         def send_forward(self): return True
+        def send_backward(self): return True
         def send_rotate_left(self): return True
         def send_rotate_right(self): return True
 
-        def send_turn_left(self):
+        def send_turn_left(self, _degrees=None):
             self.turn_status = "ACTIVE"
             return True
 
-        def send_turn_right(self):
+        def send_turn_right(self, _degrees=None):
             self.turn_status = "ACTIVE"
             return True
 
-        def send_turn_uturn(self):
+        def send_turn_uturn(self, _degrees=None):
             self.turn_status = "ACTIVE"
             return True
 
@@ -146,6 +147,19 @@ if USE_MOCK:
                 )
                 time.sleep(0.05)
 
+        @staticmethod
+        def get_stats():
+            return {
+                "status": "MOCK",
+                "capture_fps": 20.0,
+                "target_fps": 20,
+                "stream_fps": 20,
+                "frame_age_ms": 0,
+                "clients": 1,
+                "frames_captured": 0,
+                "error": None,
+            }
+
     if grid_geometry.missing_fields:
         grid_geometry = GridGeometry(80, 75, 35)
     controller = GridController(
@@ -182,6 +196,8 @@ else:
         width=config.camera_width,
         height=config.camera_height,
         fps=config.camera_fps,
+        stream_fps=config.camera_stream_fps,
+        jpeg_quality=config.camera_jpeg_quality,
     )
     controller = GridController(
         serial_bridge,
@@ -227,10 +243,12 @@ def video_feed():
         if USE_MOCK
         else camera.generate_mjpeg()
     )
-    return Response(
+    response = Response(
         stream,
         mimetype="multipart/x-mixed-replace; boundary=frame",
     )
+    response.headers["X-Accel-Buffering"] = "no"
+    return response
 
 
 @app.route("/navigation_mode")
@@ -321,7 +339,9 @@ def request_book():
 
 @app.route("/status")
 def status():
-    return jsonify(controller.get_status())
+    payload = controller.get_status()
+    payload["camera"] = camera.get_stats()
+    return jsonify(payload)
 
 
 @app.route("/reset", methods=["POST"])

@@ -12,6 +12,8 @@ def test_defaults_are_valid_for_current_camera_and_controller():
 
 def test_from_env_overrides_tuning_values(monkeypatch):
     monkeypatch.setenv("LIBRARY_ROBOT_CAMERA_FPS", "15")
+    monkeypatch.setenv("LIBRARY_ROBOT_CAMERA_STREAM_FPS", "12")
+    monkeypatch.setenv("LIBRARY_ROBOT_CAMERA_JPEG_QUALITY", "72")
     monkeypatch.setenv("LIBRARY_ROBOT_STOP_DISTANCE_CM", "28.5")
     monkeypatch.setenv("LIBRARY_ROBOT_MIN_MARKER_AREA_PX", "450")
     monkeypatch.setenv("LIBRARY_ROBOT_AUTO_RETURN", "off")
@@ -20,6 +22,8 @@ def test_from_env_overrides_tuning_values(monkeypatch):
     config = NavigationConfig.from_env()
 
     assert config.camera_fps == 15
+    assert config.camera_stream_fps == 12
+    assert config.camera_jpeg_quality == 72
     assert config.stop_distance_cm == 28.5
     assert config.min_marker_area_px == 450.0
     assert config.auto_return is False
@@ -43,3 +47,5 @@ def test_config_rejects_unsafe_values():
         NavigationConfig(control_hz=0)
     with pytest.raises(ValueError):
         NavigationConfig(target_loss_tolerance_frames=-1)
+    with pytest.raises(ValueError):
+        NavigationConfig(camera_jpeg_quality=101)

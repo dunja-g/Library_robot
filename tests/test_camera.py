@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+import time
 
 from pi.camera import Camera, CameraError
 
@@ -42,6 +43,49 @@ def test_mjpeg_generator_produces_multipart_jpeg():
 
     assert chunk.startswith(b"--frame\r\nContent-Type: image/jpeg")
     assert b"\xff\xd8" in chunk
+    camera.stop()
+
+
+def test_multiple_streams_share_one_background_capture_source():
+    class CountingBackend(FakeBackend):
+        def __init__(self, frame):
+            super().__init__(frame)
+            self.capture_count = 0
+
+        def capture_array(self):
+            self.capture_count += 1
+            return self.frame
+
+    backend = CountingBackend(np.zeros((48, 64, 3), dtype=np.uint8))
+    camera = Camera(64, 48, fps=20, stream_fps=15, backend=backend)
+    first_stream = camera.generate_mjpeg()
+    second_stream = camera.generate_mjpeg()
+
+    assert next(first_stream).startswith(b"--frame")
+    assert next(second_stream).startswith(b"--frame")
+    stats = camera.get_stats()
+
+    assert stats["clients"] == 2
+    assert stats["frames_captured"] == backend.capture_count
+    first_stream.close()
+    second_stream.close()
+    camera.stop()
+
+
+def test_camera_stats_report_fresh_shared_frame():
+    camera = Camera(
+        64,
+        48,
+        fps=20,
+        backend=FakeBackend(np.zeros((48, 64, 3), dtype=np.uint8)),
+    )
+    camera.get_frame()
+    time.sleep(0.01)
+    stats = camera.get_stats()
+
+    assert stats["status"] == "OK"
+    assert stats["target_fps"] == 20
+    assert stats["frame_age_ms"] >= 0
     camera.stop()
 
 

@@ -33,6 +33,8 @@ class NavigationConfig:
     camera_width: int = 640
     camera_height: int = 480
     camera_fps: int = 20
+    camera_stream_fps: int = 15
+    camera_jpeg_quality: int = 75
     control_hz: float = 10.0
     align_tolerance_px: int = 30
     stop_distance_cm: float = 35.0
@@ -52,6 +54,7 @@ class NavigationConfig:
             "camera_width": self.camera_width,
             "camera_height": self.camera_height,
             "camera_fps": self.camera_fps,
+            "camera_stream_fps": self.camera_stream_fps,
             "control_hz": self.control_hz,
             "stop_distance_cm": self.stop_distance_cm,
             "obstacle_distance_cm": self.obstacle_distance_cm,
@@ -72,6 +75,8 @@ class NavigationConfig:
             raise ValueError("min_marker_area_px must be non-negative")
         if self.destination_dwell_seconds < 0:
             raise ValueError("destination_dwell_seconds must be non-negative")
+        if not 1 <= self.camera_jpeg_quality <= 100:
+            raise ValueError("camera_jpeg_quality must be between 1 and 100")
 
     @classmethod
     def from_env(cls) -> "NavigationConfig":
@@ -80,6 +85,12 @@ class NavigationConfig:
             camera_width=_env_number("LIBRARY_ROBOT_CAMERA_WIDTH", 640, int),
             camera_height=_env_number("LIBRARY_ROBOT_CAMERA_HEIGHT", 480, int),
             camera_fps=_env_number("LIBRARY_ROBOT_CAMERA_FPS", 20, int),
+            camera_stream_fps=_env_number(
+                "LIBRARY_ROBOT_CAMERA_STREAM_FPS", 15, int
+            ),
+            camera_jpeg_quality=_env_number(
+                "LIBRARY_ROBOT_CAMERA_JPEG_QUALITY", 75, int
+            ),
             control_hz=_env_number("LIBRARY_ROBOT_CONTROL_HZ", 10.0, float),
             align_tolerance_px=_env_number(
                 "LIBRARY_ROBOT_ALIGN_TOLERANCE_PX", 30, int

@@ -64,6 +64,7 @@ let currentState = 'IDLE';
 let currentLanguage = localStorage.getItem('smartLibraryLanguage') || 'en';
 let toastTimeout = null;
 let searchTimer = null;
+let cameraReconnectTimer = null;
 
 window.addEventListener('DOMContentLoaded', () => {
   const input = document.getElementById('book-search');
@@ -75,10 +76,70 @@ window.addEventListener('DOMContentLoaded', () => {
     if (event.key === 'Enter') previewSearch(true);
   });
   applyLanguage();
+  setupCameraStream();
   loadCatalogue();
   pollStatus();
   window.setInterval(pollStatus, 700);
 });
+
+function setCameraConnection(status, label) {
+  const indicator = document.getElementById('camera-connection');
+  if (!indicator) return;
+  indicator.dataset.status = status;
+  indicator.textContent = `\u2022 ${label}`;
+}
+
+function setupCameraStream() {
+  const feed = document.getElementById('camera-feed');
+  if (!feed) return;
+
+  feed.addEventListener('load', () => {
+    if (feed.dataset.mode === 'stream') {
+      feed.dataset.streamState = 'live';
+      setCameraConnection('live', 'LIVE');
+    }
+  });
+  feed.addEventListener('error', () => {
+    if (feed.dataset.mode !== 'stream') return;
+    feed.dataset.mode = 'fallback';
+    feed.dataset.streamState = 'offline';
+    setCameraConnection('offline', 'OFFLINE');
+    feed.src = feed.dataset.fallbackUrl;
+    clearTimeout(cameraReconnectTimer);
+    if (!document.hidden) {
+      cameraReconnectTimer = window.setTimeout(startCameraStream, 2500);
+    }
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      pauseCameraStream();
+    } else {
+      startCameraStream();
+    }
+  });
+  startCameraStream(true);
+}
+
+function startCameraStream(force = false) {
+  const feed = document.getElementById('camera-feed');
+  if (!feed || document.hidden) return;
+  if (!force && feed.dataset.mode === 'stream') return;
+  clearTimeout(cameraReconnectTimer);
+  feed.dataset.mode = 'stream';
+  feed.dataset.streamState = 'connecting';
+  setCameraConnection('connecting', 'CONNECTING');
+  feed.src = `${feed.dataset.streamUrl}?t=${Date.now()}`;
+}
+
+function pauseCameraStream() {
+  const feed = document.getElementById('camera-feed');
+  if (!feed) return;
+  clearTimeout(cameraReconnectTimer);
+  feed.dataset.mode = 'fallback';
+  feed.dataset.streamState = 'paused';
+  feed.src = feed.dataset.fallbackUrl;
+  setCameraConnection('paused', 'PAUSED');
+}
 
 async function loadCatalogue() {
   try {
@@ -376,6 +437,7 @@ function updateUI(data) {
   }
 
   const telemetry = data.telemetry || {};
+  updateCameraTelemetry(data.camera || {});
   const missionComplete = state === 'ARRIVED' || state === 'DWELLING' || state === 'DOCKED';
   const progress = missionComplete
     ? 100
@@ -400,6 +462,44 @@ function updateUI(data) {
     speak('Return complete. The robot is back at the dock.');
   } else if (state !== previous && state === 'STOPPED') {
     showToast(`Safety stop: ${data.reason || 'inspect the robot'}`);
+  }
+}
+
+function updateCameraTelemetry(camera) {
+  const fps = document.getElementById('camera-fps');
+  const latency = document.getElementById('camera-latency');
+  if (fps) {
+    const measured = Number(camera.capture_fps);
+    fps.textContent = Number.isFinite(measured) && measured > 0
+      ? `${measured.toFixed(1)} FPS`
+      : '-- FPS';
+  }
+  if (latency) {
+    const hasAge = camera.frame_age_ms !== null
+      && camera.frame_age_ms !== undefined;
+    const age = Number(camera.frame_age_ms);
+    latency.textContent = hasAge && Number.isFinite(age)
+      ? `${Math.round(age)} ms`
+      : '-- ms';
+  }
+
+  if (document.hidden) {
+    setCameraConnection('paused', 'PAUSED');
+    return;
+  }
+  const status = String(camera.status || '').toUpperCase();
+  if (status === 'ERROR') {
+    setCameraConnection('error', 'ERROR');
+  } else if (status === 'OK' || status === 'MOCK') {
+    const hasAge = camera.frame_age_ms !== null
+      && camera.frame_age_ms !== undefined;
+    const age = Number(camera.frame_age_ms);
+    setCameraConnection(
+      hasAge && Number.isFinite(age) && age > 1500 ? 'error' : 'live',
+      hasAge && Number.isFinite(age) && age > 1500 ? 'STALE' : 'LIVE'
+    );
+  } else if (status) {
+    setCameraConnection('connecting', status);
   }
 }
 

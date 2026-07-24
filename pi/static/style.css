@@ -853,6 +853,28 @@ button { cursor: pointer; }
 
 .live-dot { color: #e33d3d !important; font-weight: 800; font-size: 0.85rem; }
 
+.camera-telemetry {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.camera-telemetry > span:not(:first-child) {
+  padding-left: 7px;
+  border-left: 1px solid var(--border);
+}
+
+.camera-connection { color: var(--orange); }
+.camera-connection[data-status="live"] { color: var(--green); }
+.camera-connection[data-status="paused"] { color: var(--muted); }
+.camera-connection[data-status="offline"],
+.camera-connection[data-status="error"] { color: var(--red); }
+
 .camera-frame {
   aspect-ratio: 16 / 9;
   margin-top: 14px;
@@ -864,6 +886,7 @@ button { cursor: pointer; }
 }
 
 .camera-frame img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.camera-frame img[data-stream-state="paused"] { opacity: 0.72; }
 
 .camera-state {
   position: absolute;

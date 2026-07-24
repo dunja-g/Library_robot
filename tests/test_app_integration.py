@@ -25,6 +25,9 @@ def test_dashboard_contains_search_map_and_live_status_controls(monkeypatch):
     assert 'id="book-search"' in page
     assert 'data-box="4B"' in page
     assert 'id="encoder-health"' in page
+    assert 'id="camera-connection"' in page
+    assert 'id="camera-fps"' in page
+    assert 'id="camera-latency"' in page
     assert 'id="reset-btn"' in page
 
 
@@ -54,6 +57,7 @@ def test_book_number_dispatches_without_marker_scan(monkeypatch):
 
     status = client.get("/status").get_json()
     assert status["state"] == "MOVING"
+    assert status["camera"]["status"] == "MOCK"
     assert status["book"] == "Deep Learning"
     assert status["current_action"] == "FORWARD"
     assert "current_marker_id" not in status
