@@ -60,7 +60,17 @@ class QRScanner:
             time.sleep(self._scan_interval)
     
     def _scan_frame(self, frame) -> None:
-        data, _, _ = self._detector.detectAndDecode(frame)
+        # 帧校验：防止 OpenCV convexHull 崩溃 + 空帧
+        if frame is None or frame.size == 0 or frame.ndim < 2:
+            return
+        try:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        except Exception:
+            return
+        try:
+            data, _, _ = self._detector.detectAndDecode(gray)
+        except Exception:
+            return
         if not data:
             return
         now = time.monotonic()
