@@ -27,6 +27,7 @@ class BorrowingMission:
     position: int
     created_at: float
     timeout_seconds: float
+    mission_type: str = "borrow"
     state: BorrowingState = BorrowingState.PENDING
     cancel_reason: str | None = None
     confirmed_at: float | None = None
@@ -37,6 +38,7 @@ class BorrowingMission:
         student: dict,
         book: dict,
         *,
+        mission_type: str = "borrow",
         timeout_seconds: float,
         clock=time.monotonic,
     ) -> "BorrowingMission":
@@ -52,6 +54,7 @@ class BorrowingMission:
             location_code=str(book["location_code"]),
             layer=int(book["layer"]),
             position=int(book["position"]),
+            mission_type=str(mission_type),
             created_at=float(clock()),
             timeout_seconds=float(timeout_seconds),
         )
@@ -84,6 +87,7 @@ class BorrowingMission:
     def as_dict(self) -> dict:
         return {
             "mission_id": self.mission_id,
+            "mission_type": self.mission_type,
             "state": self.state.value,
             "student_id": self.student_id,
             "student_name": self.student_name,

@@ -328,6 +328,41 @@ async function sendRobot() {
   }
 }
 
+async function sendReturnRobot() {
+  if (!window.currentStudent) {
+    showToast('Please check in first');
+    return;
+  }
+  const button = document.getElementById('send-return-btn');
+  button.disabled = true;
+  try {
+    const response = await fetch('/api/return', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ student_id: window.currentStudent.id }),
+    });
+    
+    if (response.status === 409 || response.status === 401 || response.status === 403 || response.status === 404 || response.status === 503) {
+      const errorData = await response.json();
+      showToast(errorData.message || 'Error starting return mission');
+      button.disabled = false;
+      return;
+    }
+
+    if (!response.ok) throw new Error('Network error');
+
+    const data = await response.json();
+    const bookInfo = data.book;
+    window.currentMission = data.mission || null;
+    showToast(`Return mission created for ${bookInfo.location_code}`);
+    await pollStatus();
+  } catch (_) {
+    showToast('Failed to start the return route');
+  } finally {
+    if (!ACTIVE_STATES.has(currentState)) button.disabled = false;
+  }
+}
+
 async function resetRobot() {
   try {
     const response = await fetch('/reset', { method: 'POST' });

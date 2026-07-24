@@ -15,6 +15,7 @@ try:
     from .borrowing_mission import BorrowingMission, BorrowingState
     from .student_db import (
         borrow_book,
+        return_book,
         get_all_students,
         get_student_by_id,
         get_student_by_qr,
@@ -34,6 +35,7 @@ except ImportError:  # Supports ``python pi/app.py``.
     from borrowing_mission import BorrowingMission, BorrowingState
     from student_db import (
         borrow_book,
+        return_book,
         get_all_students,
         get_student_by_id,
         get_student_by_qr,
@@ -423,14 +425,20 @@ def _reconcile_borrowing_state() -> None:
             and not status.get("pickup_confirmation_required", True)
         ):
             try:
-                borrow_result = borrow_book(mission.student_id, mission.book_id)
-                if borrow_result.get("ok"):
-                    mission.confirm()
-                    logger.info(f"Auto-confirmed pickup for {mission.book_id}")
+                if mission.mission_type == "return":
+                    result = return_book(mission.student_id)
+                    action_name = "return"
                 else:
-                    logger.error(f"Failed to auto-confirm pickup: {borrow_result.get('message')}")
+                    result = borrow_book(mission.student_id, mission.book_id)
+                    action_name = "pickup"
+                
+                if result.get("ok"):
+                    mission.confirm()
+                    logger.info(f"Auto-confirmed {action_name} for {mission.book_id}")
+                else:
+                    logger.error(f"Failed to auto-confirm {action_name}: {result.get('message') or result.get('reason')}")
             except Exception as e:
-                logger.error(f"Failed to record borrowing auto-confirmation: {e}")
+                logger.error(f"Failed to record auto-confirmation: {e}")
         if (
             mission.state == BorrowingState.CONFIRMED
             and state == "DOCKED"
@@ -591,6 +599,67 @@ def _start_borrowing_mission(
         }, 202
 
 
+def _start_return_mission(student_id: str | None = None) -> tuple[dict, int]:
+    """Build and dispatch a return route to put a book back on the shelf."""
+    global _current_borrowing_mission
+    with _mission_lock:
+        student = _get_current_student()
+        if student is None:
+            return {"ok": False, "message": "Scan a student card first"}, 401
+        if student_id and student_id != student["id"]:
+            return {"ok": False, "message": "Student session mismatch"}, 403
+        active = _current_borrowing_mission
+        if active is not None and active.is_active:
+            return {"ok": False, "message": "Another mission is active"}, 409
+        if controller.get_state() not in {"IDLE", "DOCKED"}:
+            return {"ok": False, "message": "Robot is not ready at Dock"}, 409
+
+        fresh_student = get_student_by_id(student["id"])
+        if fresh_student is None:
+            return {"ok": False, "message": "Student not found"}, 404
+        
+        book_id = fresh_student.get("borrowed_book_id")
+        if not book_id:
+            return {"ok": False, "message": "Student does not have a book to return"}, 409
+
+        book = _resolve_book(book_id)
+        if book is None:
+            return {"ok": False, "message": f"Borrowed book {book_id} not found in database"}, 404
+
+        try:
+            plan = _build_borrowing_plan(book)
+        except ValueError as exc:
+            status_code = 503 if "not calibrated" in str(exc) else 400
+            return {"ok": False, "message": str(exc)}, status_code
+
+        mission = BorrowingMission.create(
+            fresh_student,
+            book,
+            mission_type="return",
+            timeout_seconds=MISSION_TIMEOUT_SECONDS,
+        )
+        _current_borrowing_mission = mission
+        try:
+            controller.request_grid_mission(plan)
+        except Exception as exc:
+            mission.cancel(f"dispatch_failed:{type(exc).__name__}")
+            return {"ok": False, "message": "Unable to dispatch robot"}, 503
+        if controller.get_state() == "STOPPED":
+            reason = controller.get_status().get("reason") or "dispatch_failed"
+            mission.cancel(reason)
+            return {"ok": False, "message": f"Robot stopped: {reason}"}, 503
+
+        return {
+            "ok": True,
+            "mission": mission.as_dict(),
+            "book": {
+                "book_id": book["book_id"],
+                "title": book["title"],
+                "location_code": book["location_code"],
+            },
+        }, 201
+
+
 @app.route("/request_book", methods=["POST"])
 def request_book():
     data = request.get_json(silent=True) or {}
@@ -667,6 +736,17 @@ def api_borrow():
     return jsonify(payload), status_code
 
 
+@app.route("/api/return", methods=["POST"])
+def api_return():
+    """Dispatch the robot to return the student's currently borrowed book."""
+    data = request.get_json(silent=True) or {}
+    student_id = data.get("student_id")
+    payload, status_code = _start_return_mission(
+        None if student_id is None else str(student_id)
+    )
+    return jsonify(payload), status_code
+
+
 @app.route("/api/confirm_pickup", methods=["POST"])
 def api_confirm_pickup():
     global _current_borrowing_mission
@@ -685,14 +765,21 @@ def api_confirm_pickup():
         ):
             return jsonify({"ok": False, "message": "Robot has not arrived"}), 409
 
-        borrow_result = borrow_book(mission.student_id, mission.book_id)
-        if not borrow_result.get("ok"):
-            return jsonify(borrow_result), 409
+        if mission.mission_type == "return":
+            return_result = return_book(mission.student_id)
+            if not return_result.get("ok"):
+                return jsonify(return_result), 409
+        else:
+            borrow_result = borrow_book(mission.student_id, mission.book_id)
+            if not borrow_result.get("ok"):
+                return jsonify(borrow_result), 409
+
         try:
             controller.confirm_pickup()
             mission.confirm()
         except Exception:
-            rollback_borrow_book(mission.student_id, mission.book_id)
+            if mission.mission_type != "return":
+                rollback_borrow_book(mission.student_id, mission.book_id)
             return jsonify(
                 {"ok": False, "message": "Could not start return route"}
             ), 503
