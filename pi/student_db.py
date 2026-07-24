@@ -9,7 +9,14 @@ import tempfile
 from datetime import datetime
 
 # Path to the data directory (one level up from this file's directory)
-DATA_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'students.json')
+DATA_FILE = os.getenv(
+    "LIBRARY_ROBOT_STUDENT_DB_PATH",
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "data",
+        "students.json",
+    ),
+)
 
 # Module-level lock for thread safety
 _db_lock = threading.Lock()
@@ -77,6 +84,22 @@ def borrow_book(student_id: str, book_id: str) -> dict:
                 student["borrowed_at"] = datetime.now().isoformat()
                 _save(students)
                 return {"ok": True}
+        return {"ok": False, "reason": "student_not_found"}
+
+
+def rollback_borrow_book(student_id: str, book_id: str) -> dict:
+    """Undo a just-created loan only when it still matches ``book_id``."""
+    with _db_lock:
+        students = _get_all_students_no_lock()
+        for student in students:
+            if student.get("id") != student_id:
+                continue
+            if student.get("borrowed_book_id") != book_id:
+                return {"ok": False, "reason": "loan_mismatch"}
+            student["borrowed_book_id"] = None
+            student["borrowed_at"] = None
+            _save(students)
+            return {"ok": True}
         return {"ok": False, "reason": "student_not_found"}
 
 def return_book(student_id: str) -> dict:
