@@ -70,14 +70,17 @@ class _OpenCVBackend:
         self._cap: cv2.VideoCapture | None = None
 
     def start(self) -> None:
-        self._cap = cv2.VideoCapture(self.device_index)
+        self._cap = cv2.VideoCapture(self.device_index, cv2.CAP_V4L2) if hasattr(cv2, "CAP_V4L2") else cv2.VideoCapture(self.device_index)
         if not self._cap.isOpened():
             raise CameraError(f"Cannot open USB camera at index {self.device_index}")
+        # Force MJPG compressed format from USB camera hardware for max FPS
+        self._cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
         # Force V4L2 buffer size to 1 to eliminate internal frame backlog/delay
         self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
         self._cap.set(cv2.CAP_PROP_FPS, self.fps)
+
 
     def capture_array(self) -> np.ndarray:
         if self._cap is None or not self._cap.isOpened():

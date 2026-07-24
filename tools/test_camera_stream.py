@@ -54,15 +54,18 @@ def start_camera_capture():
     except Exception as err:
         print(f"[Camera Test] Picamera2 not available ({err}). Falling back to OpenCV USB camera...")
         # 2. Fallback to OpenCV (USB Camera)
-        cap = cv2.VideoCapture(0)
+        cap = cv2.VideoCapture(0, cv2.CAP_V4L2) if hasattr(cv2, "CAP_V4L2") else cv2.VideoCapture(0)
         if not cap.isOpened():
             print("[Camera Test] ERROR: Unable to open USB camera on index 0!")
             return
+        # Force MJPG compressed stream format from USB camera (dramatically increases FPS)
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        cap.set(cv2.CAP_PROP_FPS, 20)
+        cap.set(cv2.CAP_PROP_FPS, 30)
         backend_name = "OpenCV (USB /dev/video0)"
+
 
     stats["backend"] = backend_name
     print(f"[Camera Test] Successfully started camera backend: {backend_name}")
