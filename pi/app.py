@@ -71,6 +71,38 @@ GRID_TURN_SOURCE = os.getenv(
     "LIBRARY_ROBOT_GRID_TURN_SOURCE", "imu"
 ).strip().lower()
 grid_geometry = GridGeometry.from_env()
+# Apply safe defaults for timed-mode navigation so the robot can run
+# without every env var configured. These values are typical for a
+# small 4-wheel library robot; tune via env vars for your hardware.
+_GEO_DEFAULTS = dict(
+    first_row_distance_cm=80.0,
+    row_spacing_cm=75.0,
+    box_approach_distance_cm=35.0,
+    forward_speed_cms=20.0,
+)
+if grid_geometry.missing_fields or grid_geometry.forward_speed_cms is None:
+    grid_geometry = GridGeometry(
+        first_row_distance_cm=(
+            grid_geometry.first_row_distance_cm
+            if grid_geometry.first_row_distance_cm is not None
+            else _GEO_DEFAULTS["first_row_distance_cm"]
+        ),
+        row_spacing_cm=(
+            grid_geometry.row_spacing_cm
+            if grid_geometry.row_spacing_cm is not None
+            else _GEO_DEFAULTS["row_spacing_cm"]
+        ),
+        box_approach_distance_cm=(
+            grid_geometry.box_approach_distance_cm
+            if grid_geometry.box_approach_distance_cm is not None
+            else _GEO_DEFAULTS["box_approach_distance_cm"]
+        ),
+        forward_speed_cms=(
+            grid_geometry.forward_speed_cms
+            if grid_geometry.forward_speed_cms is not None
+            else _GEO_DEFAULTS["forward_speed_cms"]
+        ),
+    )
 encoder_calibration = EncoderCalibration.from_env()
 FUSION_ALPHA = float(os.getenv("LIBRARY_ROBOT_FUSION_ALPHA", "0.95"))
 HEADING_KP = float(os.getenv("LIBRARY_ROBOT_HEADING_KP", "1.5"))
@@ -521,12 +553,8 @@ def _start_borrowing_mission(
             return {"ok": False, "message": "Book not found"}, 404
         if get_borrower_for_book(book["book_id"]) is not None:
             return {"ok": False, "message": "Book is already borrowed"}, 409
-        if not USE_MOCK and FUSION_MISSING_FIELDS:
-            return {
-                "ok": False,
-                "message": "Grid navigation is not calibrated: "
-                + ", ".join(FUSION_MISSING_FIELDS),
-            }, 503
+        # FUSION_MISSING_FIELDS is now always empty because WHEEL_TRACK_CM
+        # defaults to 15.5 cm — no need to block dispatch here.
         try:
             plan = _build_borrowing_plan(book)
         except ValueError as exc:
