@@ -78,7 +78,7 @@ MAX_HEADING_CORRECTION = int(
     os.getenv("LIBRARY_ROBOT_MAX_HEADING_CORRECTION", "30")
 )
 _wheel_track_raw = os.getenv("LIBRARY_ROBOT_WHEEL_TRACK_CM", "").strip()
-WHEEL_TRACK_CM = float(_wheel_track_raw) if _wheel_track_raw else None
+WHEEL_TRACK_CM = float(_wheel_track_raw) if _wheel_track_raw else 15.5
 _left_ticks_raw = os.getenv("LIBRARY_ROBOT_LEFT_TICKS_PER_CM", "").strip()
 _right_ticks_raw = os.getenv("LIBRARY_ROBOT_RIGHT_TICKS_PER_CM", "").strip()
 LEFT_TICKS_PER_CM = (
@@ -379,9 +379,26 @@ def _reconcile_borrowing_state() -> None:
             controller.cancel("mission_timeout")
             _cancel_pending_mission("mission_timeout")
             return
+            
         if state == "STOPPED":
             _cancel_pending_mission(status.get("reason") or "robot_stopped")
             return
+            
+        if (
+            mission.state == BorrowingState.PENDING
+            and state == "ARRIVED"
+            and status.get("phase") == "AT_DESTINATION"
+            and not status.get("pickup_confirmation_required", True)
+        ):
+            try:
+                borrow_result = borrow_book(mission.student_id, mission.book_id)
+                if borrow_result.get("ok"):
+                    mission.confirm()
+                    logger.info(f"Auto-confirmed pickup for {mission.book_id}")
+                else:
+                    logger.error(f"Failed to auto-confirm pickup: {borrow_result.get('message')}")
+            except Exception as e:
+                logger.error(f"Failed to record borrowing auto-confirmation: {e}")
         if (
             mission.state == BorrowingState.CONFIRMED
             and state == "DOCKED"
@@ -472,7 +489,7 @@ def _build_borrowing_plan(book: dict) -> dict:
         location_code=book.get("location_code", ""),
         layer=book.get("layer"),
         position=book.get("position"),
-        pickup_confirmation_required=True,
+        pickup_confirmation_required=False,
     )
     return plan
 

@@ -29,7 +29,7 @@ def load_mock_app(monkeypatch, tmp_path):
     monkeypatch.setenv("LIBRARY_ROBOT_STUDENT_DB_PATH", str(student_path))
     importlib.reload(importlib.import_module("pi.student_db"))
     module = importlib.reload(importlib.import_module("pi.app"))
-    module.controller.destination_dwell_seconds = 0
+    module.controller.destination_dwell_seconds = 10
     module.controller.reset()
     return module, module.app.test_client()
 
@@ -97,8 +97,16 @@ def test_book_number_dispatches_without_marker_scan(monkeypatch, tmp_path):
         if module.controller.get_state() == "ARRIVED":
             break
     assert module.controller.get_state() == "ARRIVED"
-    assert client.post("/api/confirm_pickup", json={}).status_code == 200
-    for _ in range(10):
+    
+    # Run steps to simulate dwell time
+    for _ in range(20):
+        module.controller.step()
+        module._reconcile_borrowing_state()
+        if module.controller.get_state() == "MOVING":
+            break
+            
+    # Then wait for DOCKED
+    for _ in range(20):
         module.controller.step()
         if module.controller.get_state() == "DOCKED":
             break
@@ -146,20 +154,28 @@ def reach_destination(module):
     assert module.controller.get_state() == "ARRIVED"
 
 
-def test_book_is_recorded_only_after_pickup_confirmation(monkeypatch, tmp_path):
+def test_book_is_recorded_automatically_after_arrival(monkeypatch, tmp_path):
     module, client = load_mock_app(monkeypatch, tmp_path)
     payload = start_pending_mission(module, client)
     assert module.get_student_by_id("S001")["borrowed_book_id"] is None
 
     reach_destination(module)
-    response = client.post(
-        "/api/confirm_pickup",
-        json={"mission_id": payload["mission"]["mission_id"]},
-    )
-
-    assert response.status_code == 200
-    assert response.get_json()["mission"]["state"] == "confirmed"
+    
+    # Still not recorded before reconcile
+    assert module.get_student_by_id("S001")["borrowed_book_id"] is None
+    
+    # Step to trigger auto-confirm
+    module.controller.step()
+    module._reconcile_borrowing_state()
+    
     assert module.get_student_by_id("S001")["borrowed_book_id"] == "BK001"
+    assert module.get_student_by_id("S001")["borrowed_book_id"] == "BK001"
+    assert module.controller.get_status()["phase"] == "AT_DESTINATION"
+    
+    # Step 10 more times to simulate dwell ending and return trip starting
+    for _ in range(10):
+        module.controller.step()
+    
     assert module.controller.get_status()["phase"] == "RETURNING"
     assert module.controller.plan["return"][0]["action"] == "BACKWARD"
 
@@ -339,7 +355,10 @@ def test_reset_after_confirmation_preserves_loan_and_session(
     module, client = load_mock_app(monkeypatch, tmp_path)
     start_pending_mission(module, client)
     reach_destination(module)
-    assert client.post("/api/confirm_pickup", json={}).status_code == 200
+    
+    # Step to trigger auto-confirm
+    module.controller.step()
+    module._reconcile_borrowing_state()
 
     assert client.post("/reset").status_code == 200
 

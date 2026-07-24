@@ -178,7 +178,7 @@ class SerialBridge:
             return None
         return dict(zip(("left", "center", "right"), values))
 
-    def get_ultrasonic(self, response_lines: int = 3) -> dict[str, float] | None:
+    def get_ultrasonic(self, response_lines: int = 20) -> dict[str, float] | None:
         """Request all three sensors, ignoring unrelated status lines."""
         if response_lines <= 0:
             raise ValueError("response_lines must be positive")
