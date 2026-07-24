@@ -119,11 +119,13 @@ LIBRARY_ROBOT_MAX_HEADING_CORRECTION=30
 ```
 
 - `GRID_FIRST_ROW_CM`: Dock reference line to the turn centre of row 1.
-- `GRID_ROW_SPACING_CM`: centre-to-centre distance between adjacent rows.
-- `GRID_APPROACH_CM`: centre aisle to the safe stop point at a box.
-- `LEFT/RIGHT_TICKS_PER_CM`: calibrate each wheel independently.
+- `GRID_ROW_SPACING_CM`: centre-to-centre distance between adjacent rows (recommended 35–40 cm for 35×25 cm boxes with 5–10 cm gap).
+- `GRID_APPROACH_CM`: centre aisle to the safe stop point at a box (measured with tape).
+- `LEFT/RIGHT_TICKS_PER_CM`: calibrate each wheel independently (support separate forward/reverse calibration).
 - `WHEEL_TRACK_CM`: centre-to-centre distance between the left and right wheels.
 - `FUSION_ALPHA`: IMU weight in the complementary filter; start at `0.95`.
+- `LIBRARY_ROBOT_SENSOR_DISAGREEMENT_DEG`: max allowed deviation between IMU and encoder headings before emergency stop (default 25.0°).
+- `LIBRARY_ROBOT_REVERSE_SEGMENT_TIMEOUT_SECONDS`: max allowed time per reverse segment before timing out (default 15.0s).
 - The committed `18.0 cm` wheel track is a photo-based initial estimate. It
   must be replaced by the measured centre-to-centre tyre distance.
 - Alternatively, leave ticks-per-cm blank and provide the confirmed
@@ -138,17 +140,33 @@ four-count-per-revolution encoder.
 The server reports the missing values at `/navigation_mode` and refuses
 `/request_box` with HTTP 503 until calibration is complete.
 
+## Auto-calibration tool
+
+Use the provided calibration tool `tools/calibrate_fused_navigation.py` to auto-calculate
+ticks per cm, check left/right wheel asymmetry, and format suggested `.env` settings:
+
+```powershell
+python tools/calibrate_fused_navigation.py --distance 100 --left-ticks 820 --right-ticks 835
+```
+
+## Operator Recovery Flow (`RECOVERY_REQUIRED`)
+
+When a student confirms taking a book at `ARRIVED`, the borrowing transaction is committed to the database. If an obstacle, encoder stall, sensor disagreement, or reverse timeout occurs during the reverse return journey:
+1. The student loan is **retained** (not cancelled).
+2. The robot controller enters `STOPPED` and flags `RECOVERY_REQUIRED`.
+3. The Web UI prompts the operator: **"Robot Has Been Returned to Dock (人工已放回 Dock)"**.
+4. Clicking the operator button invokes `POST /api/operator_reposition`, resetting the robot to `IDLE`/`DOCKED` and clearing the student session for the next user.
+
 ## Calibration order
 
 1. Raise the wheels and verify both encoder counters increase through
    `ENCODER`.
 2. Reset with `ENC_RESET` and verify both return to zero.
 3. Place the robot in a repeatable mechanical Dock guide.
-4. Drive straight for a measured distance at least five times and calculate
-   ticks per centimetre from the average.
+4. Run `python tools/calibrate_fused_navigation.py` after test driving a measured distance.
 5. Measure the wheel track, then verify encoder and IMU heading signs agree.
-6. Fill in the three layout dimensions.
-7. Test `1A`, then `1B`, then row 3 to expose accumulated straight-line error.
+6. Fill in the three layout dimensions (considering 35×25 cm box footprint and 35–40 cm row spacing).
+7. Test `1A`, then `1B`, through `3B` to verify all 6 routes and return procedures.
 
 Keep a person at the power switch during commissioning. The three existing
 sensors face the front and sides. They cannot detect an obstacle directly

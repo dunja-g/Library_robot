@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 
 BOX_IDS = tuple(f"{row}{column}" for row in range(1, 4) for column in ("A", "B"))
-MOTION_ACTIONS = {"FORWARD", "TURN_LEFT", "TURN_RIGHT", "UTURN"}
+MOTION_ACTIONS = {"FORWARD", "BACKWARD", "TURN_LEFT", "TURN_RIGHT", "UTURN"}
 
 
 def normalize_box_id(box_id: str) -> str:

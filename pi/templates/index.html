@@ -278,6 +278,16 @@
             </div>
           </div>
 
+          <div id="recovery-confirmation" class="pickup-confirmation danger-box" hidden>
+            <span class="pickup-eyebrow danger-eyebrow">Manual Reposition Required</span>
+            <h3 id="recovery-title">Robot Stopped During Return</h3>
+            <p id="recovery-desc">The book loan is confirmed and recorded. Please manually reposition the robot to Dock, then confirm below.</p>
+            <div class="pickup-actions">
+              <button id="operator-reposition-btn" class="primary-btn danger-btn" type="button" onclick="operatorReposition()">Robot Has Been Returned to Dock</button>
+            </div>
+          </div>
+
+
           <!-- Distance Progress Sub-Card -->
           <div class="progress-subcard">
             <div class="progress-header">

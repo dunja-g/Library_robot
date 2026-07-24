@@ -13,7 +13,7 @@ ArUco route markers. Legacy vision files remain only for historical tests.
 
 1. While the robot is `IDLE` or `DOCKED`, scan a QR student card.
 2. Search for a book and create a `pending` borrowing mission.
-3. The robot travels from Dock to the selected `1A`–`3B` box.
+3. The robot travels from Dock to the selected `1A`–`3B` box (3 rows × 2 columns, box size 35×25 cm, 5-10 cm gap).
 4. At `ARRIVED`, the UI shows the exact layer and position.
 5. The student takes the book and confirms pickup.
 6. Only then is the book recorded as borrowed.
@@ -24,13 +24,19 @@ A pending mission is cancelled without a database write after an obstacle,
 encoder stall, IMU failure, serial failure, timeout, reset, or other safety
 stop. Duplicate missions are rejected.
 
-## Reverse-return safety limitation
+If a confirmed mission encounters a failure during reverse return, the book loan is retained, the system flags `RECOVERY_REQUIRED`, and an operator resets the robot via **"Robot Has Been Returned to Dock"** (`/api/operator_reposition`).
+
+## Reverse-return safety & sensor protections
 
 The physical scene does not provide enough space for a destination U-turn, so
 the configured return route uses `BACKWARD`. All ultrasonic readings must
 remain valid and the left/right sensors remain active, but there is no
 rear-facing sensor. The reverse corridor must therefore be cleared before
 dispatch and supervised during every physical run.
+
+Safety protections include:
+- Sensor disagreement check (`LIBRARY_ROBOT_SENSOR_DISAGREEMENT_DEG`, default 25.0°)
+- Reverse segment timeout (`LIBRARY_ROBOT_REVERSE_SEGMENT_TIMEOUT_SECONDS`, default 15.0s)
 
 ## Project structure
 
@@ -45,10 +51,12 @@ pi/encoder_navigation.py        non-blocking fixed-grid controller
 pi/qr_scanner.py                student-card QR scanner
 pi/camera.py                    shared Picamera2 capture and MJPEG stream
 pi/serial_bridge.py             Raspberry Pi to Arduino serial protocol
+tools/calibrate_fused_navigation.py  interactive navigation auto-calibration CLI
 tests/                          hardware-free unit and integration tests
 docs/FIXED_GRID_ENCODER.md      calibration and reverse-return safety
 docs/LIVE_DEMO_RUNBOOK.md       physical demonstration procedure
 ```
+
 
 ## Run without hardware
 

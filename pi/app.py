@@ -113,6 +113,8 @@ _session_lock = threading.Lock()
 _mission_lock = threading.RLock()
 _current_student: dict | None = None  # The checked-in student dict
 _current_borrowing_mission: BorrowingMission | None = None
+_recovery_required: bool = False
+
 
 def _set_current_student(student: dict | None) -> None:
     global _current_student
@@ -131,7 +133,7 @@ def _get_current_mission() -> BorrowingMission | None:
 
 def _check_in_by_qr(qr_code: str) -> tuple[dict | None, str | None]:
     """Shared QR/manual check-in logic; only valid while stationary."""
-    global _current_borrowing_mission
+    global _current_borrowing_mission, _recovery_required
     with _mission_lock:
         state = controller.get_state()
         mission = _current_borrowing_mission
@@ -139,6 +141,8 @@ def _check_in_by_qr(qr_code: str) -> tuple[dict | None, str | None]:
             return None, "robot_not_idle"
         if mission is not None and mission.is_active:
             return None, "mission_active"
+        if _recovery_required:
+            return None, "recovery_required"
         student = get_student_by_qr(qr_code)
         if student is None:
             return None, "student_not_found"
@@ -351,7 +355,7 @@ def _cancel_pending_mission(reason: str) -> bool:
 
 def _reconcile_borrowing_state() -> None:
     """Apply controller terminal states to the borrowing transaction."""
-    global _current_borrowing_mission
+    global _current_borrowing_mission, _recovery_required
     with _mission_lock:
         mission = _current_borrowing_mission
         if mission is None:
@@ -363,7 +367,14 @@ def _reconcile_borrowing_state() -> None:
             _cancel_pending_mission("mission_timeout")
             return
         if state == "STOPPED":
-            _cancel_pending_mission(status.get("reason") or "robot_stopped")
+            if mission.state == BorrowingState.CONFIRMED:
+                _recovery_required = True
+                logger.error(
+                    "Confirmed borrowing mission stopped during return; recovery required: %s",
+                    status.get("reason"),
+                )
+            else:
+                _cancel_pending_mission(status.get("reason") or "robot_stopped")
             return
         if (
             mission.state == BorrowingState.CONFIRMED
@@ -372,7 +383,9 @@ def _reconcile_borrowing_state() -> None:
         ):
             _current_borrowing_mission = None
             _set_current_student(None)
+            _recovery_required = False
             logger.info("Borrowing mission complete; student session cleared")
+
 
 
 def _control_loop():
@@ -554,18 +567,34 @@ def status():
     } if student else None
     mission = _get_current_mission()
     data["borrowing_mission"] = None if mission is None else mission.as_dict()
+    data["recovery_required"] = _recovery_required
     return jsonify(data)
 
 
 @app.route("/reset", methods=["POST"])
 def reset():
+    global _recovery_required
     with _mission_lock:
         mission = _current_borrowing_mission
         _cancel_pending_mission("reset")
         controller.reset()
         if mission is None or mission.state != BorrowingState.CONFIRMED:
             _set_current_student(None)
+            _recovery_required = False
     return jsonify({"status": "ok"})
+
+
+@app.route("/api/operator_reposition", methods=["POST"])
+def api_operator_reposition():
+    global _current_borrowing_mission, _recovery_required
+    with _mission_lock:
+        controller.reset()
+        _current_borrowing_mission = None
+        _set_current_student(None)
+        _recovery_required = False
+        logger.info("Operator repositioned robot to Dock; session cleared")
+    return jsonify({"ok": True, "message": "Robot repositioned to Dock"})
+
 
 
 @app.route("/api/students", methods=["GET"])

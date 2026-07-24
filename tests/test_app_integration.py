@@ -343,3 +343,34 @@ def test_reset_after_confirmation_preserves_loan_and_session(
     assert status["current_student"]["id"] == "S001"
     assert status["borrowing_mission"]["state"] == "confirmed"
     assert module.get_student_by_id("S001")["borrowed_book_id"] == "BK001"
+
+
+def test_confirmed_mission_return_failure_triggers_operator_recovery_flow(
+    monkeypatch, tmp_path
+):
+    module, client = load_mock_app(monkeypatch, tmp_path)
+    start_pending_mission(module, client)
+    reach_destination(module)
+    assert client.post("/api/confirm_pickup", json={}).status_code == 200
+
+    # Simulate return stop failure
+    module.controller._safe_stop("sensor_disagreement")
+    module._reconcile_borrowing_state()
+
+    status = client.get("/status").get_json()
+    assert status["recovery_required"] is True
+    # Student loan remains recorded in database
+    assert module.get_student_by_id("S001")["borrowed_book_id"] == "BK001"
+
+    # Operator reposition resets robot and clears session
+    reposition_resp = client.post("/api/operator_reposition")
+    assert reposition_resp.status_code == 200
+    assert reposition_resp.get_json()["ok"] is True
+
+    status_after = client.get("/status").get_json()
+    assert status_after["recovery_required"] is False
+    assert status_after["current_student"] is None
+    assert status_after["borrowing_mission"] is None
+    # Database loan is still preserved
+    assert module.get_student_by_id("S001")["borrowed_book_id"] == "BK001"
+

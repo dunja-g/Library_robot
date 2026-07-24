@@ -22,6 +22,11 @@ class GridState(str, Enum):
     STOPPED = "STOPPED"
 
 
+def normalize_angle_180(angle_deg: float) -> float:
+    """Normalize angle in degrees to the [-180, +180) range."""
+    return float((angle_deg + 180.0) % 360.0 - 180.0)
+
+
 class GridController:
     def __init__(
         self,
@@ -31,12 +36,16 @@ class GridController:
         destination_dwell_seconds: float = 5.0,
         encoder_stall_seconds: float = 2.0,
         turn_source: str = "encoder",
+        sensor_disagreement_threshold_deg: float = 25.0,
+        reverse_segment_timeout_seconds: float = 15.0,
         clock=time.monotonic,
     ):
         if obstacle_distance_cm <= 0 or encoder_stall_seconds <= 0:
             raise ValueError("Safety distance and encoder stall timeout must be positive")
         if destination_dwell_seconds < 0:
             raise ValueError("Destination dwell must be non-negative")
+        if sensor_disagreement_threshold_deg <= 0 or reverse_segment_timeout_seconds <= 0:
+            raise ValueError("Disagreement threshold and reverse timeout must be positive")
         if turn_source not in {"encoder", "imu"}:
             raise ValueError("turn_source must be 'encoder' or 'imu'")
         self.serial = serial_bridge
@@ -44,6 +53,8 @@ class GridController:
         self.destination_dwell_seconds = float(destination_dwell_seconds)
         self.encoder_stall_seconds = float(encoder_stall_seconds)
         self.turn_source = turn_source
+        self.sensor_disagreement_threshold_deg = float(sensor_disagreement_threshold_deg)
+        self.reverse_segment_timeout_seconds = float(reverse_segment_timeout_seconds)
         self._clock = clock
         self._lock = threading.RLock()
         self.state = GridState.IDLE
@@ -54,11 +65,13 @@ class GridController:
         self._dwell_deadline: float | None = None
         self._last_progress_ticks = 0.0
         self._last_progress_at: float | None = None
-        self._step_deadline: float | None = None  # timed mode: drive until this time
+        self._step_start_at: float | None = None
+        self._step_deadline: float | None = None
         self._latest_encoders: dict | None = None
         self._latest_odometry: dict | None = None
         self._latest_ultrasonic: dict | None = None
         self._latest_turn_status: str | None = None
+        self._latest_disagreement_deg: float | None = None
         self._awaiting_pickup_confirmation = False
 
     def request_grid_mission(self, plan: dict) -> None:
@@ -73,6 +86,7 @@ class GridController:
             self.step_index = 0
             self.stop_reason = None
             self._dwell_deadline = None
+            self._step_start_at = None
             self._step_deadline = None
             self._awaiting_pickup_confirmation = bool(
                 plan.get("pickup_confirmation_required", False)
@@ -154,12 +168,17 @@ class GridController:
                     if self._latest_odometry is None
                     else self._latest_odometry.get("right_cm"),
                     "distance_cm": None
-                    if self._latest_odometry is None
+                    if (
+                        self._latest_odometry is None
+                        or "left_cm" not in self._latest_odometry
+                        or "right_cm" not in self._latest_odometry
+                    )
                     else (
                         float(self._latest_odometry["left_cm"])
                         + float(self._latest_odometry["right_cm"])
                     )
                     / 2.0,
+
                 },
                 "imu": {
                     "status": self._latest_turn_status
@@ -173,6 +192,7 @@ class GridController:
                     "heading_fused_deg": None
                     if self._latest_odometry is None
                     else self._latest_odometry.get("heading_fused_deg"),
+                    "disagreement_deg": self._latest_disagreement_deg,
                     "speed_correction": None
                     if self._latest_odometry is None
                     else self._latest_odometry.get("speed_correction"),
@@ -202,11 +222,13 @@ class GridController:
             self.phase = None
             self.step_index = 0
             self._dwell_deadline = None
+            self._step_start_at = None
             self._step_deadline = None
             self._latest_encoders = None
             self._latest_odometry = None
             self._latest_ultrasonic = None
             self._latest_turn_status = None
+            self._latest_disagreement_deg = None
             self._awaiting_pickup_confirmation = False
 
     def confirm_pickup(self) -> None:
@@ -223,6 +245,7 @@ class GridController:
             self.step_index = 0
             self.stop_reason = None
             self._dwell_deadline = None
+            self._step_start_at = None
             self._step_deadline = None
             self._start_current_step()
 
@@ -250,14 +273,23 @@ class GridController:
                 if step is None:
                     self._safe_stop("route_state_error")
                     return
+
+                # Reverse segment timeout check
+                if step.get("action") == "BACKWARD" and self._step_start_at is not None:
+                    if self._clock() - self._step_start_at > self.reverse_segment_timeout_seconds:
+                        self._safe_stop("reverse_timeout")
+                        return
+
                 if self.state == GridState.TURNING and self.turn_source == "imu":
                     self._step_imu_turn()
                     return
-                # --- Timed forward/backward mode (no encoder wires required) ---
+
+                # Timed forward/backward mode
                 if step.get("target_seconds", 0.0) > 0.0 and step["action"] in {"FORWARD", "BACKWARD"}:
                     self._step_timed_linear()
                     return
-                # --- Encoder mode ---
+
+                # Encoder mode
                 get_odometry = getattr(self.serial, "get_odometry", None)
                 odometry = get_odometry() if callable(get_odometry) else None
                 encoders = odometry if odometry is not None else self.serial.get_encoders()
@@ -267,8 +299,15 @@ class GridController:
                 self._latest_encoders = dict(encoders)
                 if odometry is not None:
                     self._latest_odometry = dict(odometry)
-                # Require both drivetrain sides to progress. Using an average
-                # could hide one stalled wheel while the other keeps counting.
+                    if "heading_imu_deg" in odometry and "heading_encoder_deg" in odometry:
+                        imu_deg = float(odometry["heading_imu_deg"])
+                        enc_deg = float(odometry["heading_encoder_deg"])
+                        disagreement = abs(normalize_angle_180(imu_deg - enc_deg))
+                        self._latest_disagreement_deg = disagreement
+                        if disagreement > self.sensor_disagreement_threshold_deg:
+                            self._safe_stop("sensor_disagreement")
+                            return
+
                 progress = min(
                     abs(float(encoders["left"])),
                     abs(float(encoders["right"])),
@@ -302,7 +341,8 @@ class GridController:
         step = self._current_step()
         if step is None:
             raise RuntimeError("No grid route step is available")
-        # IMU turns
+        self._step_start_at = self._clock()
+
         if (
             self.turn_source == "imu"
             and step["action"] in {"TURN_LEFT", "TURN_RIGHT", "UTURN"}
@@ -317,13 +357,13 @@ class GridController:
             self._latest_turn_status = "ACTIVE"
             self._send_imu_turn(step["action"])
             return
-        # Timed linear step
+
         if step.get("target_seconds", 0.0) > 0.0 and step["action"] in {"FORWARD", "BACKWARD"}:
             self._step_deadline = self._clock() + step["target_seconds"]
             self.state = GridState.MOVING
             self._send_action(step["action"])
             return
-        # Encoder-based step
+
         if not self.serial.reset_encoders():
             self._safe_stop("encoder_reset_failed")
             return
@@ -402,9 +442,7 @@ class GridController:
         self._start_current_step()
 
     def _step_timed_linear(self) -> None:
-        """Advance a FORWARD or BACKWARD step using a time deadline instead of encoder ticks."""
         if self._step_deadline is None:
-            # Shouldn't happen, but recover gracefully.
             self._safe_stop("timed_step_no_deadline")
             return
         step = self._current_step()
@@ -449,10 +487,6 @@ class GridController:
             return False
         self._latest_ultrasonic = dict(readings)
 
-        # The chassis has no rear-facing ultrasonic sensor. During reverse we
-        # can still validate all sensor data and enforce both side sensors, but
-        # the front-centre sensor faces the shelf we are backing away from.
-        # The rear corridor therefore must be cleared and supervised.
         step = self._current_step()
         if step is not None and step.get("action") == "BACKWARD":
             directions = ("left", "right")

@@ -1158,6 +1158,23 @@ footer .divider { margin: 0 12px; color: #a4b5d4; }
   font-size: 0.72rem;
 }
 
+.danger-box {
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+.danger-eyebrow {
+  color: #dc2626;
+}
+.danger-btn {
+  background: #dc2626 !important;
+  color: #ffffff !important;
+  border: none !important;
+}
+.danger-btn:hover {
+  background: #b91c1c !important;
+}
+
+
 /* Student Portal Table */
 .portal-body {
   padding: 15px;

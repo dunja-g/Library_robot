@@ -43,6 +43,7 @@ def test_a_and_b_use_mirrored_turns():
     assert b_route["return"][1]["action"] == "TURN_LEFT"
 
 
+
 def test_unmeasured_layout_refuses_to_guess_a_route():
     with pytest.raises(ValueError, match="not calibrated"):
         build_grid_route("1A", GridGeometry(), EncoderCalibration())
@@ -83,3 +84,18 @@ def test_confirmed_encoder_and_wheel_defaults(monkeypatch):
     calibration = EncoderCalibration.from_env()
     assert calibration.ticks_per_revolution == 4
     assert calibration.wheel_diameter_cm == 6.5
+
+
+def test_motion_actions_contains_backward():
+    from pi.grid_layout import MOTION_ACTIONS
+    assert "BACKWARD" in MOTION_ACTIONS
+
+
+def test_all_six_boxes_have_valid_no_uturn_routes():
+    geometry = GridGeometry(80, 75, 35)
+    calibration = EncoderCalibration(10, 420, 840)
+    for box in BOX_IDS:
+        route = build_grid_route(box, geometry, calibration)
+        actions = [s["action"] for s in route["outbound"] + route["return"]]
+        assert "UTURN" not in actions
+        assert "BACKWARD" in [s["action"] for s in route["return"]]

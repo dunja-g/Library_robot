@@ -38,6 +38,11 @@ class NavigationConfig:
     stop_distance_cm: float = 35.0
     obstacle_distance_cm: float = 20.0
     scan_timeout_seconds: float = 60.0
+    control_hz: float = 10.0
+    align_tolerance_px: int = 30
+    stop_distance_cm: float = 35.0
+    obstacle_distance_cm: float = 20.0
+    scan_timeout_seconds: float = 60.0
     target_confirmation_frames: int = 2
     alignment_confirmation_frames: int = 2
     target_loss_tolerance_frames: int = 3
@@ -46,6 +51,8 @@ class NavigationConfig:
     uturn_seconds: float = 1.6
     destination_dwell_seconds: float = 5.0
     auto_return: bool = True
+    sensor_disagreement_threshold_deg: float = 25.0
+    reverse_segment_timeout_seconds: float = 15.0
 
     def __post_init__(self):
         positive = {
@@ -60,6 +67,8 @@ class NavigationConfig:
             "alignment_confirmation_frames": self.alignment_confirmation_frames,
             "turn_90_seconds": self.turn_90_seconds,
             "uturn_seconds": self.uturn_seconds,
+            "sensor_disagreement_threshold_deg": self.sensor_disagreement_threshold_deg,
+            "reverse_segment_timeout_seconds": self.reverse_segment_timeout_seconds,
         }
         invalid = [name for name, value in positive.items() if value <= 0]
         if invalid:
@@ -115,4 +124,10 @@ class NavigationConfig:
                 "LIBRARY_ROBOT_DESTINATION_DWELL_SECONDS", 5.0, float
             ),
             auto_return=_env_bool("LIBRARY_ROBOT_AUTO_RETURN", True),
+            sensor_disagreement_threshold_deg=_env_number(
+                "LIBRARY_ROBOT_SENSOR_DISAGREEMENT_DEG", 25.0, float
+            ),
+            reverse_segment_timeout_seconds=_env_number(
+                "LIBRARY_ROBOT_REVERSE_SEGMENT_TIMEOUT_SECONDS", 15.0, float
+            ),
         )

@@ -237,3 +237,48 @@ def test_imu_turn_source_does_not_depend_on_four_tick_encoder_turns():
     serial.turn_status = "DONE"
     controller.step()
     assert controller.get_state() == GridState.MOVING.value
+
+
+def test_normalize_angle_180():
+    from pi.encoder_navigation import normalize_angle_180
+    assert normalize_angle_180(0.0) == 0.0
+    assert normalize_angle_180(190.0) == -170.0
+    assert normalize_angle_180(-200.0) == 160.0
+
+
+def test_sensor_disagreement_causes_emergency_stop():
+    serial, clock = FakeSerial(), FakeClock()
+    controller = GridController(
+        serial, clock=clock, sensor_disagreement_threshold_deg=10.0
+    )
+    plan = build_grid_route(
+        "1A", GridGeometry(10, 10, 5), EncoderCalibration(1, 4, 8)
+    )
+    controller.request_grid_mission(plan)
+
+    def bad_odometry():
+        return {
+            "left": 1, "right": 1,
+            "heading_encoder_deg": 0.0,
+            "heading_imu_deg": 25.0,  # > 10.0 deg disagreement
+        }
+    serial.get_odometry = bad_odometry
+    controller.step()
+    assert controller.get_state() == GridState.STOPPED.value
+    assert controller.get_status()["reason"] == "sensor_disagreement"
+
+
+def test_reverse_segment_timeout_causes_emergency_stop():
+    controller, serial, clock = make_controller()
+    # Finish 3 outbound steps
+    for _ in range(3):
+        complete_step(controller, serial)
+    # Start return (BACKWARD)
+    clock.now = 1
+    controller.step()
+    assert controller.get_status()["current_action"] == "BACKWARD"
+    # Advance clock past timeout limit (default 15s)
+    clock.now = 20
+    controller.step()
+    assert controller.get_state() == GridState.STOPPED.value
+    assert controller.get_status()["reason"] == "reverse_timeout"
