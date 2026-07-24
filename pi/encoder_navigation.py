@@ -267,9 +267,10 @@ class GridController:
             return
         # ArUco Approach step
         if step["action"] == "ARUCO_APPROACH":
-            self._step_deadline = None
+            self._step_deadline = self._clock() + 3.0  # Wait up to 3s for marker
             self.state = GridState.MOVING
-            self._send_action("FORWARD")
+            self.serial.send_stop()  # Wait here to let camera settle
+            step["aruco_locked"] = False
             return
         # Encoder-based step
         if not self.serial.reset_encoders():
@@ -374,12 +375,25 @@ class GridController:
             
         detection = self.aruco_detector.detect_target(frame, target_id)
         if not detection:
-            # Marker not in view, just keep driving straight using base trim
+            # Marker not in view
+            if not step.get("aruco_locked"):
+                if self._step_deadline and self._clock() > self._step_deadline:
+                    # Give up waiting, just move forward and hope we find it
+                    step["aruco_locked"] = True
+                    self.serial.send_action("FORWARD")
+                return
+                
+            # We were locked but lost it, just keep driving straight using base trim
             if self._current_trim != self.base_trim:
                 self._current_trim = self.base_trim
                 if hasattr(self.serial, "set_trim"):
                     self.serial.set_trim(self.base_trim)
             return
+
+        # First time seeing it! Start moving.
+        if not step.get("aruco_locked"):
+            step["aruco_locked"] = True
+            self.serial.send_action("FORWARD")
 
         area = detection["area"]
         if area >= self.aruco_target_area:

@@ -387,8 +387,11 @@ function updateUI(data) {
     document.getElementById('camera-target').textContent = data.box_id;
   }
   
-  if (data.current_student && !window.currentStudent) {
-    onStudentCheckedIn(data.current_student);
+  if (data.current_student) {
+    if (!window.currentStudent || window.currentStudent.id !== data.current_student.id) {
+      window.currentStudent = null; // force update
+      onStudentCheckedIn(data.current_student);
+    }
   } else if (!data.current_student && window.currentStudent) {
     window.currentStudent = null;
     document.getElementById('student-badge').style.display = 'none';
