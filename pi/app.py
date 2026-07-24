@@ -72,39 +72,18 @@ USE_MOCK = os.getenv("LIBRARY_ROBOT_USE_MOCK", "false").lower() in {
 GRID_TURN_SOURCE = os.getenv(
     "LIBRARY_ROBOT_GRID_TURN_SOURCE", "imu"
 ).strip().lower()
-grid_geometry = GridGeometry.from_env()
-# Apply safe defaults for timed-mode navigation so the robot can run
-# without every env var configured. These values are typical for a
-# small 4-wheel library robot; tune via env vars for your hardware.
-_GEO_DEFAULTS = dict(
-    first_row_distance_cm=80.0,
-    row_spacing_cm=75.0,
-    box_approach_distance_cm=35.0,
-    forward_speed_cms=20.0,
-)
-if grid_geometry.missing_fields or grid_geometry.forward_speed_cms is None:
-    grid_geometry = GridGeometry(
-        first_row_distance_cm=(
-            grid_geometry.first_row_distance_cm
-            if grid_geometry.first_row_distance_cm is not None
-            else _GEO_DEFAULTS["first_row_distance_cm"]
-        ),
-        row_spacing_cm=(
-            grid_geometry.row_spacing_cm
-            if grid_geometry.row_spacing_cm is not None
-            else _GEO_DEFAULTS["row_spacing_cm"]
-        ),
-        box_approach_distance_cm=(
-            grid_geometry.box_approach_distance_cm
-            if grid_geometry.box_approach_distance_cm is not None
-            else _GEO_DEFAULTS["box_approach_distance_cm"]
-        ),
-        forward_speed_cms=(
-            grid_geometry.forward_speed_cms
-            if grid_geometry.forward_speed_cms is not None
-            else _GEO_DEFAULTS["forward_speed_cms"]
-        ),
+GRID_LINEAR_SOURCE = os.getenv(
+    "LIBRARY_ROBOT_GRID_LINEAR_SOURCE", "encoder"
+).strip().lower()
+if GRID_LINEAR_SOURCE not in {"encoder", "timed"}:
+    raise ValueError(
+        "LIBRARY_ROBOT_GRID_LINEAR_SOURCE must be 'encoder' or 'timed'"
     )
+_auto_return_raw = os.getenv("LIBRARY_ROBOT_AUTO_RETURN", "true").strip().lower()
+if _auto_return_raw not in {"1", "true", "yes", "on", "0", "false", "no", "off"}:
+    raise ValueError("LIBRARY_ROBOT_AUTO_RETURN must be true or false")
+AUTO_RETURN = _auto_return_raw in {"1", "true", "yes", "on"}
+grid_geometry = GridGeometry.from_env()
 encoder_calibration = EncoderCalibration.from_env()
 FUSION_ALPHA = float(os.getenv("LIBRARY_ROBOT_FUSION_ALPHA", "0.95"))
 HEADING_KP = float(os.getenv("LIBRARY_ROBOT_HEADING_KP", "1.5"))
@@ -498,6 +477,12 @@ def navigation_mode():
             "marker_scanning": False,
             "grid_configured": not missing,
             "missing": missing,
+            "linear_source": GRID_LINEAR_SOURCE,
+            "turn_source": GRID_TURN_SOURCE,
+            "return_strategy": "direct_reverse",
+            "auto_return": AUTO_RETURN,
+            "active_controller": "GridController",
+            "legacy_robot_controller_active": False,
         }
     )
 
@@ -526,6 +511,7 @@ def _build_borrowing_plan(book: dict) -> dict:
         grid_geometry,
         encoder_calibration,
         turn_source=GRID_TURN_SOURCE,
+        linear_source=GRID_LINEAR_SOURCE,
     )
     plan.update(
         book=book["title"],
@@ -533,7 +519,7 @@ def _build_borrowing_plan(book: dict) -> dict:
         location_code=book.get("location_code", ""),
         layer=book.get("layer"),
         position=book.get("position"),
-        pickup_confirmation_required=False,
+        pickup_confirmation_required=not AUTO_RETURN,
     )
     return plan
 

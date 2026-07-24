@@ -90,6 +90,8 @@ class GridController:
                 "state": self.state.value,
                 "reason": self.stop_reason,
                 "navigation_mode": "grid_fused_odometry",
+                "active_controller": "GridController",
+                "return_strategy": "direct_reverse",
                 "phase": self.phase,
                 "box_id": None if self.plan is None else self.plan["box_id"],
                 "book": None if self.plan is None else self.plan.get("book"),
@@ -116,6 +118,9 @@ class GridController:
                     self.state == GridState.ARRIVED
                     and self._awaiting_pickup_confirmation
                 ),
+                "return_actions": []
+                if self.plan is None
+                else [item["action"] for item in self.plan["return"]],
             }
             step = self._current_step()
             if step:
@@ -321,6 +326,13 @@ class GridController:
             return
         # Timed linear step
         if step.get("target_seconds", 0.0) > 0.0 and step["action"] in {"FORWARD", "BACKWARD"}:
+            if not self.serial.reset_encoders():
+                self._safe_stop("encoder_reset_failed")
+                return
+            self._last_progress_ticks = 0.0
+            self._last_progress_at = self._clock()
+            self._latest_encoders = {"left": 0, "right": 0}
+            self._latest_odometry = None
             self._step_deadline = self._clock() + step["target_seconds"]
             self.state = GridState.MOVING
             self._send_action(step["action"])

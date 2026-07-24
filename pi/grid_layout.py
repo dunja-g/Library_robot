@@ -192,24 +192,32 @@ def build_grid_route(
     geometry: GridGeometry,
     calibration: EncoderCalibration,
     turn_source: str = "encoder",
+    linear_source: str = "encoder",
 ) -> dict:
     """Build a no-marker route from Dock to a box and back to Dock.
 
-    When ``turn_source`` is ``'imu'`` and ``geometry.forward_speed_cms`` is set,
-    every FORWARD step carries a ``target_seconds`` field and ``target_ticks``
-    is set to 0.  The controller uses time-based driving instead of encoder
-    counts so the robot works without wired encoders.
+    ``turn_source`` controls turns only. Straight segments use encoders by
+    default. Timed straight driving must be selected explicitly with
+    ``linear_source='timed'`` so enabling IMU turns cannot silently bypass
+    encoder odometry.
     """
     box_id = normalize_box_id(box_id)
 
-    # Timed mode: IMU turns + time-based forward movement (no encoder wires needed)
-    timed_mode = (
-        turn_source == "imu"
-        and geometry.forward_speed_cms is not None
-        and not geometry.missing_fields
-    )
+    if linear_source not in {"encoder", "timed"}:
+        raise ValueError("linear_source must be 'encoder' or 'timed'")
+    timed_mode = linear_source == "timed"
 
-    if not timed_mode:
+    if timed_mode:
+        if geometry.forward_speed_cms is None:
+            raise ValueError(
+                "Timed navigation requires LIBRARY_ROBOT_FORWARD_SPEED_CMS"
+            )
+        if geometry.missing_fields:
+            raise ValueError(
+                "Grid navigation is not calibrated: "
+                + ", ".join(geometry.missing_fields)
+            )
+    else:
         missing = geometry.missing_fields + calibration.missing_fields_for(turn_source)
         if missing:
             raise ValueError("Grid navigation is not calibrated: " + ", ".join(missing))

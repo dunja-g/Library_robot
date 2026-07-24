@@ -110,6 +110,8 @@ LIBRARY_ROBOT_WHEEL_DIAMETER_CM=6.5
 LIBRARY_ROBOT_ENCODER_TURN_90_TICKS=
 LIBRARY_ROBOT_ENCODER_TURN_180_TICKS=
 LIBRARY_ROBOT_GRID_TURN_SOURCE=imu
+LIBRARY_ROBOT_GRID_LINEAR_SOURCE=encoder
+LIBRARY_ROBOT_AUTO_RETURN=true
 LIBRARY_ROBOT_LEFT_TICKS_PER_CM=0.195883
 LIBRARY_ROBOT_RIGHT_TICKS_PER_CM=0.195883
 LIBRARY_ROBOT_WHEEL_TRACK_CM=18.0
@@ -121,6 +123,11 @@ LIBRARY_ROBOT_MAX_HEADING_CORRECTION=30
 - `GRID_FIRST_ROW_CM`: Dock reference line to the turn centre of row 1.
 - `GRID_ROW_SPACING_CM`: centre-to-centre distance between adjacent rows.
 - `GRID_APPROACH_CM`: centre aisle to the safe stop point at a box.
+- `GRID_LINEAR_SOURCE=encoder`: straight outbound and reverse-return segments
+  stop from encoder distance. Select `timed` only for deliberate bench tests.
+- `AUTO_RETURN=true`: after the configured destination dwell, begin the
+  direct-reverse return automatically. Set it to `false` to require the UI
+  pickup confirmation button.
 - `LEFT/RIGHT_TICKS_PER_CM`: calibrate each wheel independently.
 - `WHEEL_TRACK_CM`: centre-to-centre distance between the left and right wheels.
 - `FUSION_ALPHA`: IMU weight in the complementary filter; start at `0.95`.
@@ -153,6 +160,10 @@ The server reports the missing values at `/navigation_mode` and refuses
 Keep a person at the power switch during commissioning. The three existing
 sensors face the front and sides. They cannot detect an obstacle directly
 behind the robot during the configured reverse return.
+
+`pi/app.py` runs `GridController` from `pi/encoder_navigation.py`.
+`pi/robot_controller.py` is the archived ArUco waypoint controller and is not
+part of the fixed-grid Flask runtime.
 
 ## Mock test
 
