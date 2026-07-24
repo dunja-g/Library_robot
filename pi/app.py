@@ -19,7 +19,6 @@ try:
         get_student_by_id,
         get_student_by_qr,
         rollback_borrow_book,
-        return_book,
     )
     from .book_db import (
         find_book,
@@ -38,7 +37,6 @@ except ImportError:  # Supports ``python pi/app.py``.
         get_student_by_id,
         get_student_by_qr,
         rollback_borrow_book,
-        return_book,
     )
     from book_db import find_book, get_all_books, get_book, search_books
     from encoder_navigation import GridController
@@ -586,39 +584,6 @@ def api_cancel_mission():
         return jsonify(
             {"ok": True, "mission": _current_borrowing_mission.as_dict()}
         )
-
-
-@app.route("/api/return_book", methods=["POST"])
-def api_return_book():
-    data = request.get_json(silent=True) or {}
-    student_id = data.get("student_id")
-    if not student_id:
-        return jsonify({"ok": False, "message": "Missing student_id"}), 400
-
-    return_res = return_book(student_id)
-    if not return_res.get("ok"):
-        return jsonify({"ok": False, "message": "No book to return"}), 400
-
-    returned_book_id = return_res["book_id"]
-    return_box = os.getenv("LIBRARY_ROBOT_RETURN_SLOT", "1A")
-
-    try:
-        plan = build_grid_route(
-            return_box,
-            grid_geometry,
-            encoder_calibration,
-            turn_source=GRID_TURN_SOURCE,
-        )
-        plan.update(
-            book="RETURN",
-            book_code=returned_book_id,
-            location_code=return_box,
-        )
-        controller.request_grid_mission(plan)
-    except Exception as e:
-        logger.error(f"Failed to route to return slot: {e}")
-
-    return jsonify({"ok": True, "returned_book_id": returned_book_id}), 200
 
 
 if __name__ == "__main__":

@@ -55,7 +55,12 @@ def test_dashboard_contains_search_map_and_live_status_controls(monkeypatch, tmp
     assert 'id="book-search"' in page
     assert 'data-box="4B"' in page
     assert 'id="encoder-health"' in page
+    assert 'id="pickup-confirmation"' in page
+    assert 'id="confirm-pickup-btn"' in page
+    assert 'id="cancel-mission-btn"' in page
     assert 'id="reset-btn"' in page
+    assert "/api/return_book" not in page
+    assert client.post("/api/return_book", json={}).status_code == 404
 
 
 def test_search_by_title_book_id_location_and_partial_text(monkeypatch, tmp_path):

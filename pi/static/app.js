@@ -65,6 +65,7 @@ let currentLanguage = localStorage.getItem('smartLibraryLanguage') || 'en';
 let toastTimeout = null;
 let searchTimer = null;
 window.currentStudent = null;
+window.currentMission = null;
 
 window.addEventListener('DOMContentLoaded', () => {
   const input = document.getElementById('book-search');
@@ -313,11 +314,12 @@ async function sendRobot() {
     // Usually the response includes `book` which has book_code/location_code
     const bookInfo = data.book || data;
     const matchingBook = catalogue.find(book =>
-      book.book_id === bookInfo.book_code || book.location_code === bookInfo.location_code
+      book.book_id === bookInfo.book_id || book.location_code === bookInfo.location_code
     );
     if (matchingBook) selectBook(matchingBook);
-    document.getElementById('book-search').value = data.title;
-    showToast(`Robot dispatched to ${data.location_code}`);
+    window.currentMission = data.mission || null;
+    document.getElementById('book-search').value = bookInfo.title;
+    showToast(`Borrowing mission created for ${bookInfo.location_code}`);
     await pollStatus();
   } catch (_) {
     showToast('Failed to start the route');
@@ -357,7 +359,9 @@ function updateUI(data) {
   const state = data.state || 'IDLE';
   const previous = currentState;
   currentState = state;
-  const cfg = STATE_CONFIG[state] || STATE_CONFIG.IDLE;
+  const cfg = data.phase === 'RETURNING'
+    ? STATE_CONFIG.RETURNING
+    : STATE_CONFIG[state] || STATE_CONFIG.IDLE;
 
   document.getElementById('status-icon').textContent = cfg.icon;
   document.getElementById('status-state').textContent = state;
@@ -389,11 +393,26 @@ function updateUI(data) {
   
   if (data.current_student && !window.currentStudent) {
     onStudentCheckedIn(data.current_student);
+  } else if (data.current_student && window.currentStudent) {
+    window.currentStudent = data.current_student;
   } else if (!data.current_student && window.currentStudent) {
     window.currentStudent = null;
+    window.currentMission = null;
     document.getElementById('student-badge').style.display = 'none';
     document.querySelector('.profile-icon').style.display = 'flex';
     initCheckin();
+  }
+
+  const mission = data.borrowing_mission || null;
+  const previousMissionState = window.currentMission?.state;
+  window.currentMission = mission;
+  updatePickupConfirmation(data, mission);
+  if (
+    mission
+    && mission.state === 'cancelled'
+    && previousMissionState !== 'cancelled'
+  ) {
+    showToast(`Mission cancelled: ${mission.cancel_reason || 'robot stopped'}`);
   }
 
   const telemetry = data.telemetry || {};
@@ -406,7 +425,7 @@ function updateUI(data) {
   document.getElementById('progress-percent').textContent = `${Math.round(progress)}%`;
   document.getElementById('progress-fill').style.width = `${progress}%`;
   updateSensorCards(telemetry);
-  updateTimeline(state);
+  updateTimeline(state, data.phase);
 
   document.getElementById('send-btn').disabled =
     ACTIVE_STATES.has(state) || !selectedBook;
@@ -421,6 +440,63 @@ function updateUI(data) {
     speak('Return complete. The robot is back at the dock.');
   } else if (state !== previous && state === 'STOPPED') {
     showToast(`Safety stop: ${data.reason || 'inspect the robot'}`);
+  }
+}
+
+function updatePickupConfirmation(data, mission) {
+  const panel = document.getElementById('pickup-confirmation');
+  if (!panel) return;
+  const waiting = Boolean(
+    mission
+    && mission.state === 'pending'
+    && data.state === 'ARRIVED'
+    && data.pickup_confirmation_required
+  );
+  panel.hidden = !waiting;
+  if (!waiting) return;
+  document.getElementById('pickup-book-title').textContent = mission.book_title;
+  document.getElementById('pickup-location').textContent =
+    `Box ${mission.box_id} / Layer ${mission.layer} / Position ${mission.position}`;
+}
+
+async function confirmPickup() {
+  if (!window.currentMission) return;
+  const button = document.getElementById('confirm-pickup-btn');
+  button.disabled = true;
+  try {
+    const response = await fetch('/api/confirm_pickup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mission_id: window.currentMission.mission_id }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      showToast(data.message || 'Pickup confirmation failed');
+      return;
+    }
+    window.currentMission = data.mission;
+    showToast('Book borrowed. Robot is returning to Dock.');
+    await pollStatus();
+  } catch (_) {
+    showToast('Pickup confirmation is temporarily unavailable');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function cancelPendingMission() {
+  try {
+    const response = await fetch('/api/cancel_mission', { method: 'POST' });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      showToast(data.message || 'Mission could not be cancelled');
+      return;
+    }
+    window.currentMission = data.mission;
+    showToast('Pending borrowing mission cancelled');
+    await pollStatus();
+  } catch (_) {
+    showToast('Mission cancellation failed');
   }
 }
 
@@ -450,7 +526,7 @@ function formatReading(value) {
   return value === null || value === undefined ? '—' : value;
 }
 
-function updateTimeline(state) {
+function updateTimeline(state, phase = null) {
   const ids = ['task-query', 'task-plan', 'task-navigate', 'task-arrive', 'task-return'];
   ids.forEach(id => document.getElementById(id).classList.remove('active', 'done'));
   const completeThrough = index => {
@@ -459,15 +535,15 @@ function updateTimeline(state) {
 
   if (state === 'IDLE' || state === 'STOPPED') {
     document.getElementById('task-query').classList.add('active');
+  } else if (phase === 'RETURNING' || state === 'RETURNING') {
+    completeThrough(3);
+    document.getElementById('task-return').classList.add('active');
   } else if (state === 'MOVING' || state === 'TURNING') {
     completeThrough(1);
     document.getElementById('task-navigate').classList.add('active');
   } else if (state === 'ARRIVED' || state === 'DWELLING') {
     completeThrough(2);
     document.getElementById('task-arrive').classList.add('active');
-  } else if (state === 'RETURNING') {
-    completeThrough(3);
-    document.getElementById('task-return').classList.add('active');
   } else if (state === 'DOCKED') {
     completeThrough(4);
   }
@@ -509,6 +585,8 @@ function initCheckin() {
   document.getElementById('book-panel').style.display = 'none';
   document.getElementById('workspace-panel').style.display = 'none';
   document.getElementById('return-panel').style.display = 'none';
+  const pickup = document.getElementById('pickup-confirmation');
+  if (pickup) pickup.hidden = true;
 }
 
 async function manualCheckin() {
@@ -553,29 +631,6 @@ function onStudentCheckedIn(student) {
     document.getElementById('return-panel').style.display = 'none';
     document.getElementById('book-panel').style.display = 'block';
     document.getElementById('workspace-panel').style.display = 'block';
-  }
-}
-
-async function returnBook() {
-  if (!window.currentStudent) return;
-  try {
-    const res = await fetch('/api/return_book', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ student_id: window.currentStudent.id })
-    });
-    const data = await res.json();
-    if (data.ok) {
-      showToast(`Book returned successfully`);
-      window.currentStudent = null;
-      document.getElementById('student-badge').style.display = 'none';
-      document.querySelector('.profile-icon').style.display = 'flex';
-      initCheckin();
-    } else {
-      showToast('Return failed');
-    }
-  } catch (err) {
-    showToast('Error connecting to server');
   }
 }
 

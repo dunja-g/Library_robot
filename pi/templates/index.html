@@ -126,12 +126,12 @@
       </div>
     </section>
 
-    <!-- Return Book Panel -->
+    <!-- Existing loan status (borrowing-only MVP; returns are out of scope) -->
     <section id="return-panel" class="panel card--primary return-panel-container" style="display: none;">
-      <div class="panel-heading"><h2>Return Book</h2></div>
+      <div class="panel-heading"><h2>Borrowing Status</h2></div>
       <div class="return-body">
-        <p>You have borrowed: <strong id="borrowed-book-title"></strong></p>
-        <button class="primary-btn" type="button" onclick="returnBook()" style="max-width: 250px;">Return Book</button>
+        <p>This student already has an active loan: <strong id="borrowed-book-title"></strong></p>
+        <small>Return processing is not part of this borrowing-only station.</small>
       </div>
     </section>
 
@@ -267,6 +267,17 @@
               <div><b>5. Return to Dock</b><small id="task-return-copy">Returning to home position</small></div>
             </li>
           </ol>
+
+          <div id="pickup-confirmation" class="pickup-confirmation" hidden>
+            <span class="pickup-eyebrow">Book ready for pickup</span>
+            <h3 id="pickup-book-title">Book located</h3>
+            <p id="pickup-location">Box -- / Layer -- / Position --</p>
+            <p>Please take the book, then confirm below. The loan is not recorded until confirmation.</p>
+            <div class="pickup-actions">
+              <button id="confirm-pickup-btn" class="primary-btn" type="button" onclick="confirmPickup()">I Took the Book</button>
+              <button id="cancel-mission-btn" class="secondary-btn" type="button" onclick="cancelPendingMission()">Cancel Mission</button>
+            </div>
+          </div>
 
           <!-- Distance Progress Sub-Card -->
           <div class="progress-subcard">
