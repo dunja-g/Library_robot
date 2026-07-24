@@ -28,6 +28,7 @@ except ImportError:  # Supports ``python pi/app.py``.
     from encoder_navigation import GridController
     from grid_layout import EncoderCalibration, GridGeometry, build_grid_route
     from qr_scanner import QRScanner
+    from aruco_detector import ArucoDetector
 
 
 logging.basicConfig(level=logging.INFO)
@@ -170,6 +171,8 @@ if USE_MOCK:
         MockEncoderSerial(),
         destination_dwell_seconds=0.3,
         turn_source=GRID_TURN_SOURCE,
+        frame_provider=None,
+        aruco_detector=None,
     )
     camera = MockCamera()
     config = None
@@ -182,6 +185,7 @@ else:
         from camera import Camera
         from navigation_config import NavigationConfig
         from serial_bridge import SerialBridge
+        from aruco_detector import ArucoDetector
 
     config = NavigationConfig.from_env()
     serial_bridge = SerialBridge(
@@ -209,6 +213,8 @@ else:
             os.getenv("LIBRARY_ROBOT_ENCODER_STALL_SECONDS", "2")
         ),
         turn_source=GRID_TURN_SOURCE,
+        frame_provider=camera.get_frame,
+        aruco_detector=ArucoDetector(),
     )
 
     def _on_qr_detected(qr_code: str) -> None:

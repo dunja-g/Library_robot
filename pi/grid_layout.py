@@ -7,8 +7,8 @@ import math
 from dataclasses import dataclass
 
 
-BOX_IDS = tuple(f"{row}{column}" for row in range(1, 5) for column in ("A", "B"))
-MOTION_ACTIONS = {"FORWARD", "TURN_LEFT", "TURN_RIGHT", "UTURN"}
+BOX_IDS = tuple(f"{row}{column}" for row in range(1, 4) for column in ("A", "B"))
+MOTION_ACTIONS = {"FORWARD", "TURN_LEFT", "TURN_RIGHT", "UTURN", "ARUCO_APPROACH"}
 
 
 def normalize_box_id(box_id: str) -> str:
@@ -225,10 +225,11 @@ def build_grid_route(
         speed = float(geometry.forward_speed_cms)
         aisle_cm = geometry.distance_to_row(row)
         approach_cm = float(geometry.box_approach_distance_cm)
+        target_aruco_id = (row - 1) * 2 + (0 if side == "A" else 1)
         outbound = [
             _timed_step("FORWARD", f"Dock to row {row}", aisle_cm, speed),
             _timed_step(outward_turn, f"Face box {box_id}", None, speed),
-            _timed_step("FORWARD", f"Approach box {box_id}", approach_cm, speed),
+            {"action": "ARUCO_APPROACH", "target_aruco_id": target_aruco_id, "label": f"Visual approach to {box_id}"},
         ]
         outbound[1]["target_degrees"] = geometry.outbound_turn_degrees
 
@@ -240,9 +241,8 @@ def build_grid_route(
         return_route[1]["target_degrees"] = geometry.return_turn_degrees
     else:
         aisle_ticks = calibration.distance_ticks(geometry.distance_to_row(row))
-        approach_ticks = calibration.distance_ticks(
-            float(geometry.box_approach_distance_cm)
-        )
+        approach_ticks = calibration.distance_ticks(float(geometry.box_approach_distance_cm))
+        target_aruco_id = (row - 1) * 2 + (0 if side == "A" else 1)
         outbound = [
             {"action": "FORWARD", "target_ticks": aisle_ticks, "target_seconds": 0.0, "label": f"Dock to row {row}"},
             {
@@ -252,10 +252,11 @@ def build_grid_route(
                 "label": f"Face box {box_id}",
             },
             {
-                "action": "FORWARD",
-                "target_ticks": approach_ticks,
+                "action": "ARUCO_APPROACH",
+                "target_aruco_id": target_aruco_id,
+                "target_ticks": 0,
                 "target_seconds": 0.0,
-                "label": f"Approach box {box_id}",
+                "label": f"Visual approach to {box_id}",
             },
         ]
         return_route = [

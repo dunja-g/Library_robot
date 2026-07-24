@@ -8,6 +8,7 @@ from copy import deepcopy
 from enum import Enum
 from typing import Any
 
+import os
 import numpy as np
 
 
@@ -32,6 +33,7 @@ class GridController:
         encoder_stall_seconds: float = 2.0,
         turn_source: str = "encoder",
         clock=time.monotonic,
+        **kwargs
     ):
         if obstacle_distance_cm <= 0 or encoder_stall_seconds <= 0:
             raise ValueError("Safety distance and encoder stall timeout must be positive")
@@ -44,6 +46,11 @@ class GridController:
         self.destination_dwell_seconds = float(destination_dwell_seconds)
         self.encoder_stall_seconds = float(encoder_stall_seconds)
         self.turn_source = turn_source
+        self.frame_provider = kwargs.get("frame_provider")
+        self.aruco_detector = kwargs.get("aruco_detector")
+        self.base_trim = int(os.getenv("LIBRARY_ROBOT_LEFT_SPEED_REDUCTION", "0"))
+        self.aruco_target_area = float(os.getenv("LIBRARY_ROBOT_ARUCO_TARGET_AREA", "35000"))
+        self._current_trim = self.base_trim
         self._clock = clock
         self._lock = threading.RLock()
         self.state = GridState.IDLE
@@ -197,6 +204,10 @@ class GridController:
                 if step.get("target_seconds", 0.0) > 0.0 and step["action"] in {"FORWARD", "BACKWARD"}:
                     self._step_timed_linear()
                     return
+                # --- Visual Servoing Mode (ArUco approach) ---
+                if step["action"] == "ARUCO_APPROACH":
+                    self._step_aruco_approach()
+                    return
                 # --- Encoder mode ---
                 encoders = self.serial.get_encoders()
                 if not self._valid_encoders(encoders):
@@ -253,6 +264,12 @@ class GridController:
             self._step_deadline = self._clock() + step["target_seconds"]
             self.state = GridState.MOVING
             self._send_action(step["action"])
+            return
+        # ArUco Approach step
+        if step["action"] == "ARUCO_APPROACH":
+            self._step_deadline = None
+            self.state = GridState.MOVING
+            self._send_action("FORWARD")
             return
         # Encoder-based step
         if not self.serial.reset_encoders():
@@ -336,6 +353,68 @@ class GridController:
                 self._complete_phase()
             else:
                 self._start_current_step()
+
+    def _step_aruco_approach(self) -> None:
+        """Dynamically steer towards an ArUco marker while driving forward."""
+        if self.frame_provider is None or self.aruco_detector is None:
+            self._safe_stop("aruco_unavailable_no_camera")
+            return
+            
+        step = self._current_step()
+        target_id = step.get("target_aruco_id")
+        
+        try:
+            frame = self.frame_provider()
+        except Exception:
+            self._safe_stop("camera_read_failed")
+            return
+            
+        if frame is None:
+            return  # No new frame yet
+            
+        detection = self.aruco_detector.detect_target(frame, target_id)
+        if not detection:
+            # Marker not in view, just keep driving straight using base trim
+            if self._current_trim != self.base_trim:
+                self._current_trim = self.base_trim
+                if hasattr(self.serial, "set_trim"):
+                    self.serial.set_trim(self.base_trim)
+            return
+
+        area = detection["area"]
+        if area >= self.aruco_target_area:
+            self.serial.send_stop()
+            # Reset trim back to normal for next step
+            if hasattr(self.serial, "set_trim"):
+                self.serial.set_trim(self.base_trim)
+            self._current_trim = self.base_trim
+            self.step_index += 1
+            if self.step_index >= len(self._current_steps()):
+                self._complete_phase()
+            else:
+                self._start_current_step()
+            return
+            
+        # Proportional steering
+        frame_width = frame.shape[1]
+        center_x = detection["center_x"]
+        error_x = center_x - (frame_width / 2.0)
+        
+        # P-controller for steering. A positive error (marker is to the right)
+        # requires the robot to veer right (trim negative).
+        # A negative error (marker to the left) requires veering left (trim positive).
+        kp = -0.15 
+        adjustment = int(error_x * kp)
+        
+        new_trim = self.base_trim + adjustment
+        
+        # Limit max trim so it doesn't spin out of control
+        new_trim = max(self.base_trim - 30, min(self.base_trim + 30, new_trim))
+        
+        if new_trim != self._current_trim:
+            self._current_trim = new_trim
+            if hasattr(self.serial, "set_trim"):
+                self.serial.set_trim(new_trim)
 
     def _check_stall(self, progress: float) -> None:
         now = self._clock()

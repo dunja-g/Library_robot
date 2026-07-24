@@ -185,39 +185,6 @@ BOOK_DATABASE = {
         "return_route": "3B_RETURN",
     },
 
-    # ---------------- 4A 号箱 (Row 4 Left) ----------------
-    "Computer Systems: CSAPP": {
-        "book_id": "BK011",
-        "box_id": "4A",
-        "layer": 1,
-        "position": 6,
-        "location_code": "4A-L1-P06",
-        "zone": "A",
-        "shelf_number": 4,
-        "shelf_code": "4A",
-        "level": 1,
-        "slot": 6,
-        "destination_marker": 401,
-        "outbound_route": "4A_OUTBOUND",
-        "return_route": "4A_RETURN",
-    },
-
-    # ---------------- 4B 号箱 (Row 4 Right) ----------------
-    "Robotics, Vision and Control": {
-        "book_id": "BK012",
-        "box_id": "4B",
-        "layer": 2,
-        "position": 9,
-        "location_code": "4B-L2-P09",
-        "zone": "B",
-        "shelf_number": 4,
-        "shelf_code": "4B",
-        "level": 2,
-        "slot": 9,
-        "destination_marker": 402,
-        "outbound_route": "4B_OUTBOUND",
-        "return_route": "4B_RETURN",
-    },
 
     # Existing Version 1 titles remain available through direct-marker routes.
     "The Great Gatsby": {
