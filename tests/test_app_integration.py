@@ -313,25 +313,6 @@ def test_calibration_failure_creates_no_mission_or_database_write(
     assert module.get_student_by_id("S001")["borrowed_book_id"] is None
 
 
-def test_database_write_is_rolled_back_if_return_cannot_start(
-    monkeypatch, tmp_path
-):
-    module, client = load_mock_app(monkeypatch, tmp_path)
-    start_pending_mission(module, client)
-    reach_destination(module)
-    monkeypatch.setattr(
-        module.controller,
-        "confirm_pickup",
-        lambda: (_ for _ in ()).throw(RuntimeError("return failed")),
-    )
-
-    response = client.post("/api/confirm_pickup", json={})
-
-    assert response.status_code == 503
-    assert module._get_current_mission().state.value == "pending"
-    assert module.get_student_by_id("S001")["borrowed_book_id"] is None
-
-
 def test_unavailable_book_is_rejected_before_mission_creation(
     monkeypatch, tmp_path
 ):

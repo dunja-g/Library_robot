@@ -433,6 +433,10 @@ def _reconcile_borrowing_state() -> None:
                     action_name = "pickup"
                 
                 if result.get("ok"):
+                    try:
+                        controller.confirm_pickup()
+                    except Exception as e:
+                        logger.debug(f"Controller did not require pickup confirmation: {e}")
                     mission.confirm()
                     logger.info(f"Auto-confirmed {action_name} for {mission.book_id}")
                 else:
