@@ -463,6 +463,21 @@ def video_feed():
     )
 
 
+@app.route("/camera_status")
+def camera_status():
+    if USE_MOCK:
+        return jsonify(
+            {
+                "running": True,
+                "target_fps": 20,
+                "frame_age_ms": 0,
+                "stream_clients": 0,
+                "error": None,
+            }
+        )
+    return jsonify(camera.get_metrics())
+
+
 @app.route("/navigation_mode")
 def navigation_mode():
     missing = (

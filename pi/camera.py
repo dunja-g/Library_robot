@@ -87,10 +87,14 @@ class Camera:
 
         # Shared state — single writer (capture thread), many readers
         self._lock = threading.Lock()
+        self._frame_condition = threading.Condition(self._lock)
         self._latest_frame: np.ndarray | None = None
         self._latest_jpeg: bytes | None = None
         self._capture_error: str | None = None
         self._frame_ready = threading.Event()
+        self._frame_sequence = 0
+        self._captured_at = 0.0
+        self._stream_clients = 0
         self._started = False
         self._closed = False
 
@@ -119,12 +123,13 @@ class Camera:
         self._capture_thread.start()
 
     def stop(self) -> None:
-        with self._lock:
+        with self._frame_condition:
             if self._closed:
                 return
             self._started = False
             self._closed = True
             self._frame_ready.set()
+            self._frame_condition.notify_all()
 
         if self._capture_thread and self._capture_thread.is_alive():
             self._capture_thread.join(timeout=2.0)
@@ -180,10 +185,13 @@ class Camera:
                 continue
             jpeg = jpeg_bytes.tobytes()
 
-            with self._lock:
+            with self._frame_condition:
                 self._latest_frame = frame
                 self._latest_jpeg = jpeg
                 self._capture_error = None
+                self._frame_sequence += 1
+                self._captured_at = time.monotonic()
+                self._frame_condition.notify_all()
             self._frame_ready.set()
 
             # Sleep so we hit the target frame rate
@@ -216,6 +224,23 @@ class Camera:
         with self._lock:
             return self._latest_jpeg
 
+    def get_metrics(self) -> dict:
+        """Return lightweight capture/stream diagnostics for the UI."""
+        with self._lock:
+            age_ms = (
+                round((time.monotonic() - self._captured_at) * 1000)
+                if self._captured_at
+                else None
+            )
+            return {
+                "running": self._started and not self._closed,
+                "target_fps": self.fps,
+                "frame_sequence": self._frame_sequence,
+                "frame_age_ms": age_ms,
+                "stream_clients": self._stream_clients,
+                "error": self._capture_error,
+            }
+
     def generate_mjpeg(
         self,
         frame_provider: Callable[[], np.ndarray | None] | None = None,
@@ -234,17 +259,11 @@ class Camera:
         if not 1 <= quality <= 100:
             raise ValueError("jpeg_quality must be between 1 and 100")
 
-        frame_interval = 1.0 / self.fps
-
-        while True:
-            loop_start = time.monotonic()
-
-            if frame_provider is None:
-                with self._lock:
-                    if not self._started:
-                        break
-                    jpeg = self._latest_jpeg
-            else:
+        # The mock/annotated provider remains supported for tests. Real
+        # Picamera2 streaming waits for the capture thread to publish a new
+        # sequence number, so duplicate cached frames cannot build a backlog.
+        if frame_provider is not None:
+            while True:
                 frame = frame_provider()
                 if frame is None:
                     time.sleep(0.02)
@@ -254,20 +273,41 @@ class Camera:
                 )
                 if not success:
                     raise CameraError("OpenCV failed to encode the camera frame")
-                jpeg = jpeg_array.tobytes()
+                yield (
+                    b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
+                    + jpeg_array.tobytes()
+                    + b"\r\n"
+                )
+                time.sleep(1.0 / self.fps)
+            return
 
-            if jpeg is None:
-                time.sleep(0.02)
-                continue
-
-            yield (
-                b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n\r\n"
-                + jpeg
-                + b"\r\n"
-            )
-
-            elapsed = time.monotonic() - loop_start
-            sleep_for = frame_interval - elapsed
-            if sleep_for > 0:
-                time.sleep(sleep_for)
+        last_sequence = -1
+        with self._lock:
+            self._stream_clients += 1
+        try:
+            while True:
+                with self._frame_condition:
+                    self._frame_condition.wait_for(
+                        lambda: (
+                            not self._started
+                            or self._frame_sequence != last_sequence
+                        ),
+                        timeout=2.0,
+                    )
+                    if not self._started:
+                        break
+                    if self._frame_sequence == last_sequence:
+                        continue
+                    last_sequence = self._frame_sequence
+                    jpeg = self._latest_jpeg
+                if jpeg is not None:
+                    yield (
+                        b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
+                        + jpeg
+                        + b"\r\n"
+                    )
+        except (GeneratorExit, BrokenPipeError, ConnectionError):
+            return
+        finally:
+            with self._lock:
+                self._stream_clients = max(0, self._stream_clients - 1)

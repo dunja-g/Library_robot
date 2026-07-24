@@ -67,6 +67,29 @@ let searchTimer = null;
 window.currentStudent = null;
 window.currentMission = null;
 
+function syncCameraStream() {
+  const checkinFeed = document.querySelector('.checkin-camera');
+  const liveFeed = document.getElementById('camera-feed');
+  const checkinPanel = document.getElementById('checkin-panel');
+  const pageVisible = !document.hidden;
+  const checkinVisible = checkinPanel && checkinPanel.style.display !== 'none';
+  const activeFeed = pageVisible ? (checkinVisible ? checkinFeed : liveFeed) : null;
+
+  [checkinFeed, liveFeed].forEach(feed => {
+    if (!feed) return;
+    if (feed === activeFeed) {
+      if (feed.dataset.streamActive !== 'true') {
+        feed.src = `${feed.dataset.streamSrc}?t=${Date.now()}`;
+        feed.dataset.streamActive = 'true';
+      }
+    } else if (feed.hasAttribute('src')) {
+      // Removing src closes the browser's MJPEG connection immediately.
+      feed.removeAttribute('src');
+      feed.dataset.streamActive = 'false';
+    }
+  });
+}
+
 window.addEventListener('DOMContentLoaded', () => {
   const input = document.getElementById('book-search');
   input.addEventListener('input', () => {
@@ -81,6 +104,8 @@ window.addEventListener('DOMContentLoaded', () => {
   pollStatus();
   window.setInterval(pollStatus, 1000);
   initCheckin();
+  syncCameraStream();
+  document.addEventListener('visibilitychange', syncCameraStream);
   loadStudentPortal();
   window.setInterval(loadStudentPortal, 5000);
 });
@@ -634,6 +659,7 @@ function initCheckin() {
   document.getElementById('return-panel').style.display = 'none';
   const pickup = document.getElementById('pickup-confirmation');
   if (pickup) pickup.hidden = true;
+  syncCameraStream();
 }
 
 async function manualCheckin() {
@@ -679,6 +705,7 @@ function onStudentCheckedIn(student) {
     document.getElementById('book-panel').style.display = 'block';
     document.getElementById('workspace-panel').style.display = 'block';
   }
+  syncCameraStream();
 }
 
 async function loadStudentPortal() {

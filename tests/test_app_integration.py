@@ -78,6 +78,20 @@ def test_dashboard_contains_search_map_and_live_status_controls(monkeypatch, tmp
     assert 'id="cancel-mission-btn"' in page
     assert 'id="reset-btn"' in page
     assert "/api/return_book" not in page
+    assert page.count('data-stream-src="/video_feed"') == 2
+    assert ' src="/video_feed"' not in page
+
+
+def test_camera_status_is_available_without_opening_another_stream(
+    monkeypatch, tmp_path
+):
+    _module, client = load_mock_app(monkeypatch, tmp_path)
+
+    response = client.get("/camera_status")
+
+    assert response.status_code == 200
+    assert response.get_json()["running"] is True
+    assert response.get_json()["stream_clients"] == 0
     assert client.post("/api/return_book", json={}).status_code == 404
 
 
