@@ -58,11 +58,14 @@ class GridController:
         self._latest_encoders: dict | None = None
         self._latest_ultrasonic: dict | None = None
         self._latest_turn_status: str | None = None
+        self._awaiting_pickup_confirmation = False
 
     def request_grid_mission(self, plan: dict) -> None:
         if not plan.get("outbound") or not plan.get("return"):
             raise ValueError("Grid plan requires outbound and return steps")
         with self._lock:
+            if self.state not in {GridState.IDLE, GridState.DOCKED}:
+                raise RuntimeError("A grid mission is already active")
             self.serial.send_stop()
             self.plan = deepcopy(plan)
             self.phase = "OUTBOUND"
@@ -70,6 +73,9 @@ class GridController:
             self.stop_reason = None
             self._dwell_deadline = None
             self._step_deadline = None
+            self._awaiting_pickup_confirmation = bool(
+                plan.get("pickup_confirmation_required", False)
+            )
             self._start_current_step()
 
     def get_state(self) -> str:
@@ -105,6 +111,10 @@ class GridController:
                 "current_action": None,
                 "current_step_label": None,
                 "target_ticks": None,
+                "pickup_confirmation_required": (
+                    self.state == GridState.ARRIVED
+                    and self._awaiting_pickup_confirmation
+                ),
             }
             step = self._current_step()
             if step:
@@ -170,6 +180,29 @@ class GridController:
             self._latest_encoders = None
             self._latest_ultrasonic = None
             self._latest_turn_status = None
+            self._awaiting_pickup_confirmation = False
+
+    def confirm_pickup(self) -> None:
+        """Start the return route after the user confirms taking the book."""
+        with self._lock:
+            if (
+                self.state != GridState.ARRIVED
+                or self.phase != "AT_DESTINATION"
+                or not self._awaiting_pickup_confirmation
+            ):
+                raise RuntimeError("Pickup confirmation is not currently expected")
+            self._awaiting_pickup_confirmation = False
+            self.phase = "RETURNING"
+            self.step_index = 0
+            self.stop_reason = None
+            self._dwell_deadline = None
+            self._step_deadline = None
+            self._start_current_step()
+
+    def cancel(self, reason: str = "mission_cancelled") -> None:
+        """Stop an active mission without pretending that the robot is docked."""
+        with self._lock:
+            self._safe_stop(reason)
 
     def step(self) -> None:
         with self._lock:
@@ -303,7 +336,11 @@ class GridController:
             self.state = GridState.ARRIVED
             self.phase = "AT_DESTINATION"
             self.stop_reason = "destination_reached"
-            self._dwell_deadline = self._clock() + self.destination_dwell_seconds
+            self._dwell_deadline = (
+                None
+                if self._awaiting_pickup_confirmation
+                else self._clock() + self.destination_dwell_seconds
+            )
         else:
             self.state = GridState.DOCKED
             self.phase = "COMPLETE"
@@ -311,6 +348,8 @@ class GridController:
 
     def _step_dwell(self) -> None:
         self.serial.send_stop()
+        if self._awaiting_pickup_confirmation:
+            return
         if self._dwell_deadline is None or self._clock() < self._dwell_deadline:
             return
         self.phase = "RETURNING"

@@ -1,3 +1,5 @@
+import pytest
+
 from pi.encoder_navigation import GridController, GridState
 from pi.grid_layout import EncoderCalibration, GridGeometry, build_grid_route
 
@@ -165,6 +167,36 @@ def test_reset_cancels_grid_plan_and_stops():
     assert controller.get_state() == GridState.IDLE.value
     assert controller.plan is None
     assert serial.commands[-1] == "STOP"
+
+
+def test_confirmation_mission_waits_at_shelf_before_reverse_return():
+    serial, clock = FakeSerial(), FakeClock()
+    controller = GridController(serial, clock=clock, destination_dwell_seconds=0)
+    plan = build_grid_route(
+        "1A", GridGeometry(10, 10, 5), EncoderCalibration(1, 4, 8)
+    )
+    plan["pickup_confirmation_required"] = True
+    controller.request_grid_mission(plan)
+    for _ in range(3):
+        complete_step(controller, serial)
+
+    clock.now = 100
+    controller.step()
+    assert controller.get_state() == GridState.ARRIVED.value
+    assert controller.get_status()["pickup_confirmation_required"] is True
+
+    controller.confirm_pickup()
+    assert controller.get_status()["phase"] == "RETURNING"
+    assert controller.get_status()["current_action"] == "BACKWARD"
+
+
+def test_duplicate_grid_mission_is_rejected():
+    controller, _serial, _clock = make_controller()
+    duplicate = build_grid_route(
+        "2A", GridGeometry(10, 10, 5), EncoderCalibration(1, 4, 8)
+    )
+    with pytest.raises(RuntimeError, match="already active"):
+        controller.request_grid_mission(duplicate)
 
 
 def test_imu_turn_source_does_not_depend_on_four_tick_encoder_turns():
