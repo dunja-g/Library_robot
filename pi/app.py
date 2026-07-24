@@ -273,6 +273,23 @@ if USE_MOCK:
         destination_dwell_seconds=0.3,
         turn_source=GRID_TURN_SOURCE,
     )
+    
+    # Mock clock to advance rapidly so timed steps finish instantly in tests
+    class MockClock:
+        def __init__(self):
+            self.time = 0.0
+        def __call__(self):
+            self.time += 1.0
+            return self.time
+    controller._clock = MockClock()
+
+    
+    class MockArucoDetector:
+        def detect_target(self, frame, target_id):
+            # Always return a massive area so the ArUco approach instantly completes
+            return {"center_x": 320, "area": 100000}
+            
+    controller.aruco_detector = MockArucoDetector()
     camera = MockCamera()
     config = None
 else:

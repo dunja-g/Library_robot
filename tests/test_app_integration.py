@@ -213,6 +213,7 @@ def test_encoder_stall_cancels_pending_without_database_write(
     module.controller.serial.get_encoders = lambda: {"left": 0, "right": 0}
     module.controller._last_progress_at = module.controller._clock() - 3
 
+    module.controller._current_step = lambda: {"action": "FORWARD", "target_ticks": 1000, "target_seconds": 0.0, "label": "Mock Encoder Step"}
     module.controller.step()
     module._reconcile_borrowing_state()
 
@@ -267,7 +268,10 @@ def test_serial_and_imu_failures_cancel_pending_operation(monkeypatch, tmp_path)
         json={"student_id": "S001", "book_query": "BK001"},
     )
     assert response.status_code == 202
-    module.controller.step()
+    for _ in range(5):
+        module.controller.step()
+        if module.controller.get_state() == "TURNING":
+            break
     assert module.controller.get_state() == "TURNING"
     module.controller.serial.turn_status = "ERROR"
     module.controller.step()
