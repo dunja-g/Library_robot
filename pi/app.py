@@ -60,6 +60,7 @@ encoder_calibration = EncoderCalibration.from_env()
 # --- Student session state (set by QR scanner, cleared when robot docks) ---
 _session_lock = threading.Lock()
 _current_student: dict | None = None  # The checked-in student dict
+_had_active_mission = False  # True once a mission has started; used to know when to clear session
 
 def _set_current_student(student: dict | None) -> None:
     global _current_student
@@ -240,14 +241,19 @@ else:
 
 
 def _control_loop():
+    global _had_active_mission
     while True:
         try:
             controller.step()
-            # Auto-clear student session once the robot has returned to dock
-            if controller.get_state() in ("DOCKED", "IDLE") and _get_current_student() is not None:
-                # Only clear if no active mission
+            state = str(controller.get_state())
+            # Track when a real mission has been dispatched
+            if state in ("MOVING", "TURNING", "ARRIVING", "RETURNING", "DWELLING"):
+                _had_active_mission = True
+            # Only clear student session after a mission has fully completed and robot is docked
+            if _had_active_mission and state in ("DOCKED", "IDLE") and _get_current_student() is not None:
                 if controller.get_status().get("phase") is None:
                     _set_current_student(None)
+                    _had_active_mission = False
                     logger.info("Student session cleared after robot docked")
         except Exception:
             logger.exception("Robot control loop failed; controller stopped safely")
