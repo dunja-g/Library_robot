@@ -92,7 +92,10 @@ class SerialBridge:
 
     def set_trim(self, left_speed_reduction: int) -> bool:
         """Dynamically configure Arduino motor compensation for drift."""
-        return self._send(f"SET_TRIM:{left_speed_reduction}")
+        success = self._send(f"SET_TRIM:{left_speed_reduction}")
+        # Re-send FORWARD so Arduino re-calculates motor speeds with the new trim immediately
+        self._send("FORWARD")
+        return success
 
     def set_fusion_config(
         self,

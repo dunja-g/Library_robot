@@ -122,9 +122,9 @@ class GridController:
                 status.update(
                     current_action=step["action"],
                     current_step_label=step.get("label"),
-                    target_ticks=step["target_ticks"],
+                    target_ticks=step.get("target_ticks"),
                 )
-            target_ticks = float(step["target_ticks"]) if step else 0.0
+            target_ticks = float(step.get("target_ticks", 0.0)) if step else 0.0
             encoder_progress = 0.0
             if self._latest_encoders:
                 encoder_progress = min(
@@ -244,6 +244,8 @@ class GridController:
                     if self.state in {GridState.ARRIVED, GridState.DWELLING}:
                         self._step_dwell()
                     return
+
+                # Generic step timeout removed because ARUCO_APPROACH and timed linear steps handle their own.
                 if not self._safety_clear():
                     return
                 step = self._current_step()
@@ -417,6 +419,86 @@ class GridController:
                 self._complete_phase()
             else:
                 self._start_current_step()
+
+
+
+    def _step_aruco_approach(self) -> None:
+        """Dynamically steer towards an ArUco marker while driving forward."""
+        if self.frame_provider is None or self.aruco_detector is None:
+            self._safe_stop("aruco_unavailable_no_camera")
+            return
+            
+        step = self._current_step()
+        target_id = step.get("target_aruco_id")
+        
+        try:
+            frame = self.frame_provider()
+        except Exception:
+            self._safe_stop("camera_read_failed")
+            return
+            
+        if frame is None:
+            return  # No new frame yet
+            
+        detection = self.aruco_detector.detect_target(frame, target_id)
+        if not detection:
+            # Marker not in view
+            if not step.get("aruco_locked"):
+                if self._step_deadline and self._clock() > self._step_deadline:
+                    # Give up waiting, just move forward and hope we find it
+                    step["aruco_locked"] = True
+                    self._step_deadline = None
+                    self.serial.send_action("FORWARD")
+                return
+                
+            # We were locked but lost it, just keep driving straight using base trim
+            if self._current_trim != self.base_trim:
+                self._current_trim = self.base_trim
+                if hasattr(self.serial, "set_trim"):
+                    self.serial.set_trim(self.base_trim)
+            return
+
+        # First time seeing it! Start moving.
+        if not step.get("aruco_locked"):
+            step["aruco_locked"] = True
+            self._step_deadline = None
+            self.serial.send_action("FORWARD")
+
+        area = detection["area"]
+        if area >= self.aruco_target_area:
+            self.serial.send_stop()
+            # Reset trim back to normal for next step
+            if hasattr(self.serial, "set_trim"):
+                self.serial.set_trim(self.base_trim)
+            self._current_trim = self.base_trim
+            self.step_index += 1
+            if self.step_index >= len(self._current_steps()):
+                self._complete_phase()
+            else:
+                self._start_current_step()
+            return
+            
+        # Proportional steering
+        frame_width = frame.shape[1]
+        center_x = detection["center_x"]
+        error_x = center_x - (frame_width / 2.0)
+        
+        # P-controller for steering. A positive error (marker is to the right)
+        # requires the robot to veer right (trim negative).
+        # A negative error (marker to the left) requires veering left (trim positive).
+        kp = -0.15 
+        adjustment = int(error_x * kp)
+        
+        new_trim = self.base_trim + adjustment
+        
+        # Limit max trim so it doesn't spin out of control
+        new_trim = max(self.base_trim - 30, min(self.base_trim + 30, new_trim))
+        
+        if new_trim != self._current_trim:
+            self._current_trim = new_trim
+            if hasattr(self.serial, "set_trim"):
+                self.serial.set_trim(new_trim)
+
 
     def _check_stall(self, progress: float) -> None:
         now = self._clock()
