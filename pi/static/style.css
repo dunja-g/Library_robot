@@ -695,7 +695,7 @@ button { cursor: pointer; }
   inset: 18px 18px 78px;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  grid-template-rows: repeat(4, 1fr);
+  grid-template-rows: repeat(3, 1fr);
   gap: 14px 104px;
 }
 

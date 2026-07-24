@@ -5,7 +5,7 @@ navigation. Do not place or configure ArUco route markers.
 
 ## 1. Prepare the scene
 
-- Place the eight boxes as `1A`–`4A` on the left and `1B`–`4B` on the right.
+- Place the six boxes as `1A`–`3A` on the left and `1B`–`3B` on the right.
 - Put the robot in its repeatable Dock guide, facing row 1.
 - Clear the centre aisle and the complete reverse return corridor.
 - Keep one operator beside the emergency power control.
@@ -34,6 +34,12 @@ LIBRARY_ROBOT_ENCODER_TICKS_PER_REV=4
 LIBRARY_ROBOT_WHEEL_DIAMETER_CM=6.5
 LIBRARY_ROBOT_ENCODER_STALL_SECONDS=2
 LIBRARY_ROBOT_GRID_TURN_SOURCE=imu
+LIBRARY_ROBOT_LEFT_TICKS_PER_CM=0.195883
+LIBRARY_ROBOT_RIGHT_TICKS_PER_CM=0.195883
+LIBRARY_ROBOT_WHEEL_TRACK_CM=18.0
+LIBRARY_ROBOT_FUSION_ALPHA=0.95
+LIBRARY_ROBOT_HEADING_KP=1.5
+LIBRARY_ROBOT_MAX_HEADING_CORRECTION=30
 ```
 
 Do not start a powered route while a required measurement is blank.
@@ -48,6 +54,7 @@ python -m pi.serial_diagnostics --port /dev/ttyACM0
 Confirm:
 
 - both encoders increase and reset;
+- fused heading remains near zero during straight travel;
 - MPU6500 turns finish with `DONE`;
 - all three ultrasonic readings are finite;
 - disconnecting a sensor produces a stop;

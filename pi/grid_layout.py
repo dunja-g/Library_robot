@@ -1,4 +1,4 @@
-"""Parameterised 2-column by 4-row box layout and encoder/timed route planning."""
+"""Parameterised 2-column by 3-row box layout and encoder/timed route planning."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import math
 from dataclasses import dataclass
 
 
-BOX_IDS = tuple(f"{row}{column}" for row in range(1, 5) for column in ("A", "B"))
+BOX_IDS = tuple(f"{row}{column}" for row in range(1, 4) for column in ("A", "B"))
 MOTION_ACTIONS = {"FORWARD", "TURN_LEFT", "TURN_RIGHT", "UTURN"}
 
 
@@ -88,8 +88,8 @@ class GridGeometry:
             raise ValueError(
                 "Grid dimensions are not configured: " + ", ".join(self.missing_fields)
             )
-        if row not in range(1, 5):
-            raise ValueError("row must be between 1 and 4")
+        if row not in range(1, 4):
+            raise ValueError("row must be between 1 and 3")
         return float(self.first_row_distance_cm) + (row - 1) * float(
             self.row_spacing_cm
         )

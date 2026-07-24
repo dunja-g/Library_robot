@@ -8,11 +8,11 @@ IMAGE_PATH = os.path.join(OUTPUT_DIR, "physical_layout_plan.png")
 def draw_grid_layout(ax):
     ax.set_title("Mode 2: Fixed Grid Layout (Encoder/IMU)", fontsize=14, fontweight='bold', pad=20)
     ax.set_xlim(-1, 3)
-    ax.set_ylim(-1, 5)
+    ax.set_ylim(-1, 4)
     ax.axis('off')
 
     # Draw Center Aisle
-    ax.plot([1, 1], [0, 4.5], linestyle='--', color='gray', label='Center Aisle')
+    ax.plot([1, 1], [0, 3.5], linestyle='--', color='gray', label='Center Aisle')
 
     # Draw Dock
     dock = patches.Rectangle((0.5, -0.8), 1, 0.6, linewidth=2, edgecolor='blue', facecolor='lightblue')
@@ -20,7 +20,7 @@ def draw_grid_layout(ax):
     ax.text(1, -0.5, "DOCK\n(Facing Row 1)", ha='center', va='center', fontweight='bold')
 
     # Draw Boxes
-    for row in range(1, 5):
+    for row in range(1, 4):
         # Column A (Left)
         box_a = patches.Rectangle((-0.8, row - 0.3), 0.6, 0.6, edgecolor='black', facecolor='lightgray')
         ax.add_patch(box_a)

@@ -221,7 +221,7 @@
         <!-- Library Map Panel -->
         <section class="panel map-panel">
           <div class="panel-heading">
-            <div><h2 id="map-heading">Library Map</h2><span>(4 Rows &times; 2 Columns)</span></div>
+            <div><h2 id="map-heading">Library Map</h2><span>(3 Rows &times; 2 Columns)</span></div>
             <div class="map-legend"><b></b> Robot <b></b> Target <em></em> Route <em></em> Return Route</div>
           </div>
           <div class="library-map">
@@ -230,7 +230,6 @@
               <path id="return-path" d="" />
             </svg>
             <div class="shelf-grid">
-              <div class="shelf-box" data-box="4A">4A</div><div class="shelf-box" data-box="4B">4B</div>
               <div class="shelf-box" data-box="3A">3A</div><div class="shelf-box" data-box="3B">3B</div>
               <div class="shelf-box" data-box="2A">2A</div><div class="shelf-box" data-box="2B">2B</div>
               <div class="shelf-box" data-box="1A">1A</div><div class="shelf-box" data-box="1B">1B</div>
@@ -312,7 +311,7 @@
         <div class="panel-heading"><h2 id="robot-status-heading">Robot Status</h2><span id="robot-state" class="state-pill">Navigating</span></div>
         <div class="sensor-grid">
           <div><span>Encoders</span><b id="encoder-health">OK</b><small id="encoder-detail">L 10000 &middot; R 10000</small></div>
-          <div><span>MPU6500</span><b id="imu-health">OK</b><small>Angle control</small></div>
+          <div><span>Fused Heading</span><b id="imu-health">OK</b><small id="imu-detail">IMU + encoders</small></div>
           <div><span>Ultrasonic</span><b id="ultrasonic-health">OK</b><small id="ultrasonic-detail">L 100 &middot; C 100 &middot; R 100</small></div>
         </div>
         <div class="status-message"><span id="status-icon">&bull;</span><div><b id="status-state">IDLE</b><small id="status-desc">Enter a book to begin</small></div></div>

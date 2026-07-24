@@ -72,6 +72,36 @@ GRID_TURN_SOURCE = os.getenv(
 ).strip().lower()
 grid_geometry = GridGeometry.from_env()
 encoder_calibration = EncoderCalibration.from_env()
+FUSION_ALPHA = float(os.getenv("LIBRARY_ROBOT_FUSION_ALPHA", "0.95"))
+HEADING_KP = float(os.getenv("LIBRARY_ROBOT_HEADING_KP", "1.5"))
+MAX_HEADING_CORRECTION = int(
+    os.getenv("LIBRARY_ROBOT_MAX_HEADING_CORRECTION", "30")
+)
+_wheel_track_raw = os.getenv("LIBRARY_ROBOT_WHEEL_TRACK_CM", "").strip()
+WHEEL_TRACK_CM = float(_wheel_track_raw) if _wheel_track_raw else None
+_left_ticks_raw = os.getenv("LIBRARY_ROBOT_LEFT_TICKS_PER_CM", "").strip()
+_right_ticks_raw = os.getenv("LIBRARY_ROBOT_RIGHT_TICKS_PER_CM", "").strip()
+LEFT_TICKS_PER_CM = (
+    float(_left_ticks_raw)
+    if _left_ticks_raw
+    else encoder_calibration.resolved_ticks_per_cm
+)
+RIGHT_TICKS_PER_CM = (
+    float(_right_ticks_raw)
+    if _right_ticks_raw
+    else encoder_calibration.resolved_ticks_per_cm
+)
+if not 0 <= FUSION_ALPHA <= 1:
+    raise ValueError("LIBRARY_ROBOT_FUSION_ALPHA must be between 0 and 1")
+if (
+    LEFT_TICKS_PER_CM <= 0
+    or RIGHT_TICKS_PER_CM <= 0
+    or HEADING_KP < 0
+    or not 0 <= MAX_HEADING_CORRECTION <= 100
+    or (WHEEL_TRACK_CM is not None and WHEEL_TRACK_CM <= 0)
+):
+    raise ValueError("Invalid fused-odometry calibration")
+FUSION_MISSING_FIELDS = [] if WHEEL_TRACK_CM is not None else ["wheel_track_cm"]
 MISSION_TIMEOUT_SECONDS = float(
     os.getenv("LIBRARY_ROBOT_MISSION_TIMEOUT_SECONDS", "300")
 )
@@ -177,6 +207,18 @@ if USE_MOCK:
             self.right += 10000
             return {"left": self.left, "right": self.right}
 
+        def get_odometry(self):
+            readings = self.get_encoders()
+            return {
+                **readings,
+                "left_cm": readings["left"] / LEFT_TICKS_PER_CM,
+                "right_cm": readings["right"] / RIGHT_TICKS_PER_CM,
+                "heading_encoder_deg": 0.0,
+                "heading_imu_deg": 0.0,
+                "heading_fused_deg": 0.0,
+                "speed_correction": 0,
+            }
+
         def get_ultrasonic(self):
             return {"left": 100, "center": 100, "right": 100}
 
@@ -255,6 +297,16 @@ else:
             serial_bridge.set_trim(int(trim))
         except ValueError:
             logger.error("LIBRARY_ROBOT_LEFT_SPEED_REDUCTION must be an integer")
+    if WHEEL_TRACK_CM is not None:
+        if not serial_bridge.set_fusion_config(
+            alpha=FUSION_ALPHA,
+            left_ticks_per_cm=LEFT_TICKS_PER_CM,
+            right_ticks_per_cm=RIGHT_TICKS_PER_CM,
+            wheel_track_cm=WHEEL_TRACK_CM,
+            heading_kp=HEADING_KP,
+            max_correction=MAX_HEADING_CORRECTION,
+        ):
+            raise RuntimeError("Unable to configure Mega fused odometry")
             
     camera = Camera(
         width=config.camera_width,
@@ -359,6 +411,7 @@ def navigation_mode():
     missing = (
         grid_geometry.missing_fields
         + encoder_calibration.missing_fields_for(GRID_TURN_SOURCE)
+        + ([] if USE_MOCK else FUSION_MISSING_FIELDS)
     )
     return jsonify(
         {
@@ -434,6 +487,12 @@ def _start_borrowing_mission(
             return {"ok": False, "message": "Book not found"}, 404
         if get_borrower_for_book(book["book_id"]) is not None:
             return {"ok": False, "message": "Book is already borrowed"}, 409
+        if not USE_MOCK and FUSION_MISSING_FIELDS:
+            return {
+                "ok": False,
+                "message": "Grid navigation is not calibrated: "
+                + ", ".join(FUSION_MISSING_FIELDS),
+            }, 503
         try:
             plan = _build_borrowing_plan(book)
         except ValueError as exc:

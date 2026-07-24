@@ -1,4 +1,4 @@
-"""Non-blocking encoder navigation for the fixed 1A-4B grid."""
+"""Non-blocking fused-odometry navigation for the fixed 1A-3B grid."""
 
 from __future__ import annotations
 
@@ -56,6 +56,7 @@ class GridController:
         self._last_progress_at: float | None = None
         self._step_deadline: float | None = None  # timed mode: drive until this time
         self._latest_encoders: dict | None = None
+        self._latest_odometry: dict | None = None
         self._latest_ultrasonic: dict | None = None
         self._latest_turn_status: str | None = None
         self._awaiting_pickup_confirmation = False
@@ -88,7 +89,7 @@ class GridController:
             status = {
                 "state": self.state.value,
                 "reason": self.stop_reason,
-                "navigation_mode": "grid_encoder",
+                "navigation_mode": "grid_fused_odometry",
                 "phase": self.phase,
                 "box_id": None if self.plan is None else self.plan["box_id"],
                 "book": None if self.plan is None else self.plan.get("book"),
@@ -146,10 +147,35 @@ class GridController:
                     "right": None
                     if self._latest_encoders is None
                     else self._latest_encoders["right"],
+                    "left_cm": None
+                    if self._latest_odometry is None
+                    else self._latest_odometry.get("left_cm"),
+                    "right_cm": None
+                    if self._latest_odometry is None
+                    else self._latest_odometry.get("right_cm"),
+                    "distance_cm": None
+                    if self._latest_odometry is None
+                    else (
+                        float(self._latest_odometry["left_cm"])
+                        + float(self._latest_odometry["right_cm"])
+                    )
+                    / 2.0,
                 },
                 "imu": {
                     "status": self._latest_turn_status
-                    or ("READY" if self.turn_source == "imu" else "DISABLED")
+                    or ("READY" if self.turn_source == "imu" else "DISABLED"),
+                    "heading_encoder_deg": None
+                    if self._latest_odometry is None
+                    else self._latest_odometry.get("heading_encoder_deg"),
+                    "heading_imu_deg": None
+                    if self._latest_odometry is None
+                    else self._latest_odometry.get("heading_imu_deg"),
+                    "heading_fused_deg": None
+                    if self._latest_odometry is None
+                    else self._latest_odometry.get("heading_fused_deg"),
+                    "speed_correction": None
+                    if self._latest_odometry is None
+                    else self._latest_odometry.get("speed_correction"),
                 },
                 "ultrasonic": {
                     "status": "OK"
@@ -178,6 +204,7 @@ class GridController:
             self._dwell_deadline = None
             self._step_deadline = None
             self._latest_encoders = None
+            self._latest_odometry = None
             self._latest_ultrasonic = None
             self._latest_turn_status = None
             self._awaiting_pickup_confirmation = False
@@ -231,11 +258,15 @@ class GridController:
                     self._step_timed_linear()
                     return
                 # --- Encoder mode ---
-                encoders = self.serial.get_encoders()
+                get_odometry = getattr(self.serial, "get_odometry", None)
+                odometry = get_odometry() if callable(get_odometry) else None
+                encoders = odometry if odometry is not None else self.serial.get_encoders()
                 if not self._valid_encoders(encoders):
                     self._safe_stop("encoder_unavailable")
                     return
                 self._latest_encoders = dict(encoders)
+                if odometry is not None:
+                    self._latest_odometry = dict(odometry)
                 # Require both drivetrain sides to progress. Using an average
                 # could hide one stalled wheel while the other keeps counting.
                 progress = min(
@@ -276,8 +307,13 @@ class GridController:
             self.turn_source == "imu"
             and step["action"] in {"TURN_LEFT", "TURN_RIGHT", "UTURN"}
         ):
+            if not self.serial.reset_encoders():
+                self._safe_stop("encoder_reset_failed")
+                return
             self.state = GridState.TURNING
             self._step_deadline = None
+            self._latest_encoders = {"left": 0, "right": 0}
+            self._latest_odometry = None
             self._latest_turn_status = "ACTIVE"
             self._send_imu_turn(step["action"])
             return
@@ -315,6 +351,12 @@ class GridController:
             self._safe_stop("imu_turn_command_failed")
 
     def _step_imu_turn(self) -> None:
+        get_odometry = getattr(self.serial, "get_odometry", None)
+        if callable(get_odometry):
+            odometry = get_odometry()
+            if odometry is not None and self._valid_encoders(odometry):
+                self._latest_encoders = dict(odometry)
+                self._latest_odometry = dict(odometry)
         status = self.serial.get_turn_status()
         self._latest_turn_status = status
         if status == "ACTIVE":

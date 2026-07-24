@@ -19,7 +19,6 @@ The photographed scene is numbered:
 ```text
              far end
 
-       4A              4B
        3A              3B
        2A              2B
        1A              1B

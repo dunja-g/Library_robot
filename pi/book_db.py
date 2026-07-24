@@ -185,38 +185,38 @@ BOOK_DATABASE = {
         "return_route": "3B_RETURN",
     },
 
-    # ---------------- 4A 号箱 (Row 4 Left) ----------------
+
+
+    # The former row-4 titles remain available in the reduced six-box layout.
     "Computer Systems: CSAPP": {
         "book_id": "BK011",
-        "box_id": "4A",
+        "box_id": "3A",
         "layer": 1,
         "position": 6,
-        "location_code": "4A-L1-P06",
+        "location_code": "3A-L1-P06",
         "zone": "A",
-        "shelf_number": 4,
-        "shelf_code": "4A",
+        "shelf_number": 3,
+        "shelf_code": "3A",
         "level": 1,
         "slot": 6,
-        "destination_marker": 401,
-        "outbound_route": "4A_OUTBOUND",
-        "return_route": "4A_RETURN",
+        "destination_marker": 301,
+        "outbound_route": "3A_OUTBOUND",
+        "return_route": "3A_RETURN",
     },
-
-    # ---------------- 4B 号箱 (Row 4 Right) ----------------
     "Robotics, Vision and Control": {
         "book_id": "BK012",
-        "box_id": "4B",
+        "box_id": "3B",
         "layer": 2,
         "position": 9,
-        "location_code": "4B-L2-P09",
+        "location_code": "3B-L2-P09",
         "zone": "B",
-        "shelf_number": 4,
-        "shelf_code": "4B",
+        "shelf_number": 3,
+        "shelf_code": "3B",
         "level": 2,
         "slot": 9,
-        "destination_marker": 402,
-        "outbound_route": "4B_OUTBOUND",
-        "return_route": "4B_RETURN",
+        "destination_marker": 302,
+        "outbound_route": "3B_OUTBOUND",
+        "return_route": "3B_RETURN",
     },
 
     # Existing Version 1 titles remain available through direct-marker routes.

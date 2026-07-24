@@ -1,9 +1,10 @@
 # Library Robot — Borrowing-Only Fixed-Grid MVP
 
 A Raspberry Pi 5 and Arduino Mega robot that helps an identified student
-borrow a numbered book from a fixed `1A`–`4B` layout. Navigation is
-marker-free: wheel encoders measure distance, the MPU6500 controls turns, and
-three front/side ultrasonic sensors provide fail-safe stopping.
+borrow a numbered book from a fixed six-box `1A`–`3B` layout. Navigation is
+marker-free: wheel encoders measure distance, the MPU6500 measures continuous
+heading, complementary fusion corrects left/right wheel speed, and three
+front/side ultrasonic sensors provide fail-safe stopping.
 
 This runtime does not use reinforcement learning, face recognition, SLAM, or
 ArUco route markers. Legacy vision files remain only for historical tests.
@@ -12,7 +13,7 @@ ArUco route markers. Legacy vision files remain only for historical tests.
 
 1. While the robot is `IDLE` or `DOCKED`, scan a QR student card.
 2. Search for a book and create a `pending` borrowing mission.
-3. The robot travels from Dock to the selected `1A`–`4B` box.
+3. The robot travels from Dock to the selected `1A`–`3B` box.
 4. At `ARRIVED`, the UI shows the exact layer and position.
 5. The student takes the book and confirms pickup.
 6. Only then is the book recorded as borrowed.
@@ -39,7 +40,7 @@ pi/app.py                       Flask API and borrowing transaction orchestratio
 pi/borrowing_mission.py         pending/confirmed/cancelled mission state
 pi/student_db.py                atomic student loan database
 pi/book_db.py                   book and physical shelf metadata
-pi/grid_layout.py               parameterised 1A-4B route generation
+pi/grid_layout.py               parameterised 1A-3B route generation
 pi/encoder_navigation.py        non-blocking fixed-grid controller
 pi/qr_scanner.py                student-card QR scanner
 pi/camera.py                    shared Picamera2 capture and MJPEG stream

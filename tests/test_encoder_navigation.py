@@ -27,6 +27,18 @@ class FakeSerial:
         self.encoders = {"left": 0, "right": 0}
         return self.reset_ok
     def get_encoders(self): return self.encoders
+    def get_odometry(self):
+        if self.encoders is None:
+            return None
+        return {
+            **self.encoders,
+            "left_cm": float(self.encoders["left"]),
+            "right_cm": float(self.encoders["right"]),
+            "heading_encoder_deg": 1.0,
+            "heading_imu_deg": 2.0,
+            "heading_fused_deg": 1.95,
+            "speed_correction": -4,
+        }
     def get_ultrasonic(self): return self.ultrasonic
     def send_turn_left(self, _degrees=None): self.commands.append("TURN_LEFT"); return True
     def send_turn_right(self, _degrees=None): self.commands.append("TURN_RIGHT"); return True
@@ -154,10 +166,21 @@ def test_status_exposes_dashboard_sensor_telemetry():
     serial.encoders = {"left": 2, "right": 3}
     controller.step()
     telemetry = controller.get_status()["telemetry"]
-    assert telemetry["encoders"] == {"status": "OK", "left": 2, "right": 3}
+    assert telemetry["encoders"] == {
+        "status": "OK",
+        "left": 2,
+        "right": 3,
+        "left_cm": 2.0,
+        "right_cm": 3.0,
+        "distance_cm": 2.5,
+    }
     assert telemetry["ultrasonic"] == {
         "status": "OK", "left": 100, "center": 100, "right": 100
     }
+    assert telemetry["imu"]["heading_encoder_deg"] == 1.0
+    assert telemetry["imu"]["heading_imu_deg"] == 2.0
+    assert telemetry["imu"]["heading_fused_deg"] == 1.95
+    assert telemetry["imu"]["speed_correction"] == -4
     assert 0 <= telemetry["segment_progress_percent"] <= 100
 
 

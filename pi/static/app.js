@@ -9,7 +9,7 @@ const STATE_CONFIG = {
   STOPPED: { icon: '!', label: 'Stopped', colour: '#dc2626', desc: 'Safety stop — inspect the robot' },
 };
 
-const ROW_Y = { 4: 55, 3: 150, 2: 250, 1: 350 };
+const ROW_Y = { 3: 82, 2: 215, 1: 348 };
 const COL_X = { A: 70, B: 270 };
 const ACTIVE_STATES = new Set(['MOVING', 'TURNING', 'ARRIVED', 'DWELLING', 'RETURNING']);
 const SEARCH_ALIASES = {
@@ -268,7 +268,7 @@ function updateMap(box) {
   document.querySelectorAll('.shelf-box').forEach(element => {
     element.classList.toggle('target', element.dataset.box === box);
   });
-  const match = /^([1-4])([AB])$/.exec(box);
+  const match = /^([1-3])([AB])$/.exec(box);
   if (!match) return;
   const targetY = ROW_Y[Number(match[1])];
   const targetX = COL_X[match[2]];
@@ -504,10 +504,19 @@ function updateSensorCards(telemetry) {
   const encoders = telemetry.encoders || {};
   setHealth('encoder-health', encoders.status || 'Waiting');
   document.getElementById('encoder-detail').textContent =
-    `L ${formatReading(encoders.left)} · R ${formatReading(encoders.right)}`;
+    encoders.distance_cm === null || encoders.distance_cm === undefined
+      ? `L ${formatReading(encoders.left)} · R ${formatReading(encoders.right)}`
+      : `${Number(encoders.distance_cm).toFixed(1)} cm · L ${formatReading(encoders.left)} · R ${formatReading(encoders.right)}`;
 
   const imu = telemetry.imu || {};
   setHealth('imu-health', imu.status || 'Ready');
+  const imuDetail = document.getElementById('imu-detail');
+  if (imuDetail) {
+    imuDetail.textContent = imu.heading_fused_deg === null
+      || imu.heading_fused_deg === undefined
+      ? 'IMU + encoders'
+      : `${Number(imu.heading_fused_deg).toFixed(1)}° · PWM ${formatReading(imu.speed_correction)}`;
+  }
 
   const ultrasonic = telemetry.ultrasonic || {};
   setHealth('ultrasonic-health', ultrasonic.status || 'Waiting');

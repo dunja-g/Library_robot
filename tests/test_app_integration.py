@@ -53,7 +53,9 @@ def test_dashboard_contains_search_map_and_live_status_controls(monkeypatch, tmp
     page = client.get("/").get_data(as_text=True)
     assert "Smart Library" in page
     assert 'id="book-search"' in page
-    assert 'data-box="4B"' in page
+    assert 'data-box="3B"' in page
+    assert 'data-box="4A"' not in page
+    assert 'data-box="4B"' not in page
     assert 'id="encoder-health"' in page
     assert 'id="pickup-confirmation"' in page
     assert 'id="confirm-pickup-btn"' in page

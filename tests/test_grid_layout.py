@@ -9,9 +9,11 @@ from pi.grid_layout import (
 )
 
 
-def test_all_eight_box_ids_are_available():
-    assert BOX_IDS == ("1A", "1B", "2A", "2B", "3A", "3B", "4A", "4B")
+def test_all_six_box_ids_are_available():
+    assert BOX_IDS == ("1A", "1B", "2A", "2B", "3A", "3B")
     assert normalize_box_id(" 3b ") == "3B"
+    with pytest.raises(ValueError, match="box_id"):
+        normalize_box_id("4A")
 
 
 def test_grid_route_is_generated_from_late_bound_dimensions():

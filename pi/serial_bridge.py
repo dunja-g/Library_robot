@@ -94,6 +94,38 @@ class SerialBridge:
         """Dynamically configure Arduino motor compensation for drift."""
         return self._send(f"SET_TRIM:{left_speed_reduction}")
 
+    def set_fusion_config(
+        self,
+        *,
+        alpha: float,
+        left_ticks_per_cm: float,
+        right_ticks_per_cm: float,
+        wheel_track_cm: float,
+        heading_kp: float,
+        max_correction: int,
+    ) -> bool:
+        """Configure Mega-side fused odometry and straight-line feedback."""
+        values = (
+            alpha,
+            left_ticks_per_cm,
+            right_ticks_per_cm,
+            wheel_track_cm,
+            heading_kp,
+        )
+        if (
+            not all(math.isfinite(value) for value in values)
+            or not 0 <= alpha <= 1
+            or min(left_ticks_per_cm, right_ticks_per_cm, wheel_track_cm) <= 0
+            or heading_kp < 0
+            or not 0 <= max_correction <= 100
+        ):
+            raise ValueError("Invalid motion-fusion configuration")
+        return self._send(
+            "SET_FUSION:"
+            f"{alpha:.4f},{left_ticks_per_cm:.6f},{right_ticks_per_cm:.6f},"
+            f"{wheel_track_cm:.3f},{heading_kp:.3f},{int(max_correction)}"
+        )
+
     @staticmethod
     def parse_turn_status(line: str) -> str | None:
         if not line.startswith("TURN:"):
@@ -199,6 +231,55 @@ class SerialBridge:
                 if line:
                     logger.debug("Ignoring Arduino status line: %s", line)
         logger.warning("No valid encoder response received")
+        return None
+
+    @staticmethod
+    def parse_odometry(line: str) -> dict[str, float | int] | None:
+        """Parse fused ``ODOM`` telemetry emitted by the Mega."""
+        if not line.startswith("ODOM:"):
+            return None
+        parts = line[5:].split(",")
+        if len(parts) != 8:
+            return None
+        try:
+            left_ticks, right_ticks = int(parts[0]), int(parts[1])
+            floating = [float(value) for value in parts[2:7]]
+            correction = int(parts[7])
+        except ValueError:
+            return None
+        if not all(math.isfinite(value) for value in floating):
+            return None
+        return {
+            "left": left_ticks,
+            "right": right_ticks,
+            "left_cm": floating[0],
+            "right_cm": floating[1],
+            "heading_encoder_deg": floating[2],
+            "heading_imu_deg": floating[3],
+            "heading_fused_deg": floating[4],
+            "speed_correction": correction,
+        }
+
+    def get_odometry(self, response_lines: int = 3) -> dict[str, float | int] | None:
+        """Request the latest encoder distances and fused heading."""
+        if response_lines <= 0:
+            raise ValueError("response_lines must be positive")
+        with self._lock:
+            if not self._write_locked("ODOMETRY"):
+                return None
+            for _ in range(response_lines):
+                try:
+                    raw = self.ser.readline()
+                except (serial.SerialException, OSError) as exc:
+                    logger.error("Failed to read odometry response: %s", exc)
+                    return None
+                line = raw.decode("ascii", errors="ignore").strip()
+                readings = self.parse_odometry(line)
+                if readings is not None:
+                    return readings
+                if line:
+                    logger.debug("Ignoring Arduino status line: %s", line)
+        logger.warning("No valid odometry response received")
         return None
 
     def close(self) -> None:

@@ -21,6 +21,10 @@ def test_deep_learning_has_complete_b3_location():
     assert "Deep Learning" in get_all_books()
     assert "Deep Learning" in get_all_books(grid_only=True)
     assert len(get_all_books(grid_only=True)) == 12
+    assert all(
+        get_book(title)["box_id"] in {"1A", "1B", "2A", "2B", "3A", "3B"}
+        for title in get_all_books(grid_only=True)
+    )
     assert book["location_code"] == "1A-L3-P21"
 
 
