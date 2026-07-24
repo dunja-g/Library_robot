@@ -44,7 +44,7 @@ class _Picamera2Backend:
         configuration = self._camera.create_video_configuration(
             main={"size": (width, height), "format": "RGB888"},
             controls={"FrameRate": fps},
-            buffer_count=2,
+            buffer_count=1,
         )
         self._camera.configure(configuration)
 
@@ -57,6 +57,55 @@ class _Picamera2Backend:
     def stop(self) -> None:
         self._camera.stop()
         self._camera.close()
+
+
+class _OpenCVBackend:
+    """USB camera backend using OpenCV VideoCapture with buffer size = 1."""
+
+    def __init__(self, width: int, height: int, fps: int, device_index: int = 0):
+        self.width = width
+        self.height = height
+        self.fps = fps
+        self.device_index = device_index
+        self._cap: cv2.VideoCapture | None = None
+
+    def start(self) -> None:
+        self._cap = cv2.VideoCapture(self.device_index, cv2.CAP_V4L2) if hasattr(cv2, "CAP_V4L2") else cv2.VideoCapture(self.device_index)
+        if not self._cap.isOpened():
+            raise CameraError(f"Cannot open USB camera at index {self.device_index}")
+        # Force MJPG compressed format from USB camera hardware for max FPS
+        self._cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        # Force V4L2 buffer size to 1 to eliminate internal frame backlog/delay
+        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+        self._cap.set(cv2.CAP_PROP_FPS, self.fps)
+
+
+    def capture_array(self) -> np.ndarray:
+        if self._cap is None or not self._cap.isOpened():
+            raise CameraError("OpenCV camera is not open")
+        ret, frame = self._cap.read()
+        if not ret or frame is None:
+            raise CameraError("Failed to read frame from OpenCV camera")
+        return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+    def stop(self) -> None:
+        if self._cap is not None:
+            self._cap.release()
+            self._cap = None
+
+
+def _create_default_backend(width: int, height: int, fps: int) -> CameraBackend:
+    try:
+        return _Picamera2Backend(width, height, fps)
+    except Exception:
+        try:
+            return _OpenCVBackend(width, height, fps)
+        except Exception as exc:
+            raise CameraError(
+                "Neither Picamera2 nor OpenCV camera backends could be initialized"
+            ) from exc
 
 
 class Camera:
@@ -83,14 +132,18 @@ class Camera:
         self.height = int(height)
         self.fps = int(fps)
         self.jpeg_quality = int(jpeg_quality)
-        self._backend = backend or _Picamera2Backend(width, height, fps)
+        self._backend = backend or _create_default_backend(width, height, fps)
 
         # Shared state — single writer (capture thread), many readers
         self._lock = threading.Lock()
+        self._frame_condition = threading.Condition(self._lock)
         self._latest_frame: np.ndarray | None = None
         self._latest_jpeg: bytes | None = None
         self._capture_error: str | None = None
         self._frame_ready = threading.Event()
+        self._frame_sequence = 0
+        self._captured_at = 0.0
+        self._stream_clients = 0
         self._started = False
         self._closed = False
 
@@ -119,12 +172,13 @@ class Camera:
         self._capture_thread.start()
 
     def stop(self) -> None:
-        with self._lock:
+        with self._frame_condition:
             if self._closed:
                 return
             self._started = False
             self._closed = True
             self._frame_ready.set()
+            self._frame_condition.notify_all()
 
         if self._capture_thread and self._capture_thread.is_alive():
             self._capture_thread.join(timeout=2.0)
@@ -180,10 +234,13 @@ class Camera:
                 continue
             jpeg = jpeg_bytes.tobytes()
 
-            with self._lock:
+            with self._frame_condition:
                 self._latest_frame = frame
                 self._latest_jpeg = jpeg
                 self._capture_error = None
+                self._frame_sequence += 1
+                self._captured_at = time.monotonic()
+                self._frame_condition.notify_all()
             self._frame_ready.set()
 
             # Sleep so we hit the target frame rate
@@ -216,6 +273,23 @@ class Camera:
         with self._lock:
             return self._latest_jpeg
 
+    def get_metrics(self) -> dict:
+        """Return lightweight capture/stream diagnostics for the UI."""
+        with self._lock:
+            age_ms = (
+                round((time.monotonic() - self._captured_at) * 1000)
+                if self._captured_at
+                else None
+            )
+            return {
+                "running": self._started and not self._closed,
+                "target_fps": self.fps,
+                "frame_sequence": self._frame_sequence,
+                "frame_age_ms": age_ms,
+                "stream_clients": self._stream_clients,
+                "error": self._capture_error,
+            }
+
     def generate_mjpeg(
         self,
         frame_provider: Callable[[], np.ndarray | None] | None = None,
@@ -234,17 +308,11 @@ class Camera:
         if not 1 <= quality <= 100:
             raise ValueError("jpeg_quality must be between 1 and 100")
 
-        frame_interval = 1.0 / self.fps
-
-        while True:
-            loop_start = time.monotonic()
-
-            if frame_provider is None:
-                with self._lock:
-                    if not self._started:
-                        break
-                    jpeg = self._latest_jpeg
-            else:
+        # The mock/annotated provider remains supported for tests. Real
+        # Picamera2 streaming waits for the capture thread to publish a new
+        # sequence number, so duplicate cached frames cannot build a backlog.
+        if frame_provider is not None:
+            while True:
                 frame = frame_provider()
                 if frame is None:
                     time.sleep(0.02)
@@ -254,20 +322,41 @@ class Camera:
                 )
                 if not success:
                     raise CameraError("OpenCV failed to encode the camera frame")
-                jpeg = jpeg_array.tobytes()
+                yield (
+                    b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
+                    + jpeg_array.tobytes()
+                    + b"\r\n"
+                )
+                time.sleep(1.0 / self.fps)
+            return
 
-            if jpeg is None:
-                time.sleep(0.02)
-                continue
-
-            yield (
-                b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n\r\n"
-                + jpeg
-                + b"\r\n"
-            )
-
-            elapsed = time.monotonic() - loop_start
-            sleep_for = frame_interval - elapsed
-            if sleep_for > 0:
-                time.sleep(sleep_for)
+        last_sequence = -1
+        with self._lock:
+            self._stream_clients += 1
+        try:
+            while True:
+                with self._frame_condition:
+                    self._frame_condition.wait_for(
+                        lambda: (
+                            not self._started
+                            or self._frame_sequence != last_sequence
+                        ),
+                        timeout=2.0,
+                    )
+                    if not self._started:
+                        break
+                    if self._frame_sequence == last_sequence:
+                        continue
+                    last_sequence = self._frame_sequence
+                    jpeg = self._latest_jpeg
+                if jpeg is not None:
+                    yield (
+                        b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
+                        + jpeg
+                        + b"\r\n"
+                    )
+        except (GeneratorExit, BrokenPipeError, ConnectionError):
+            return
+        finally:
+            with self._lock:
+                self._stream_clients = max(0, self._stream_clients - 1)

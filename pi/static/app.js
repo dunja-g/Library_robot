@@ -67,6 +67,38 @@ let searchTimer = null;
 window.currentStudent = null;
 window.currentMission = null;
 
+function initFastCameraStream() {
+  const checkinFeed = document.querySelector('.checkin-camera');
+  const liveFeed = document.getElementById('camera-feed');
+
+  function fetchNextFrame() {
+    if (document.hidden) {
+      setTimeout(fetchNextFrame, 500);
+      return;
+    }
+    const checkinPanel = document.getElementById('checkin-panel');
+    const checkinVisible = checkinPanel && checkinPanel.style.display !== 'none';
+    const activeFeed = checkinVisible ? checkinFeed : liveFeed;
+
+    if (!activeFeed) {
+      setTimeout(fetchNextFrame, 200);
+      return;
+    }
+
+    const nextImg = new Image();
+    nextImg.onload = () => {
+      activeFeed.src = nextImg.src;
+      setTimeout(fetchNextFrame, 50);
+    };
+    nextImg.onerror = () => {
+      setTimeout(fetchNextFrame, 300);
+    };
+    nextImg.src = `/api/latest_frame.jpg?t=${Date.now()}`;
+  }
+
+  fetchNextFrame();
+}
+
 window.addEventListener('DOMContentLoaded', () => {
   const input = document.getElementById('book-search');
   input.addEventListener('input', () => {
@@ -81,9 +113,11 @@ window.addEventListener('DOMContentLoaded', () => {
   pollStatus();
   window.setInterval(pollStatus, 1000);
   initCheckin();
+  initFastCameraStream();
   loadStudentPortal();
   window.setInterval(loadStudentPortal, 5000);
 });
+
 
 async function loadCatalogue() {
   try {
@@ -634,6 +668,7 @@ function initCheckin() {
   document.getElementById('return-panel').style.display = 'none';
   const pickup = document.getElementById('pickup-confirmation');
   if (pickup) pickup.hidden = true;
+  syncCameraStream();
 }
 
 async function manualCheckin() {
@@ -679,6 +714,7 @@ function onStudentCheckedIn(student) {
     document.getElementById('book-panel').style.display = 'block';
     document.getElementById('workspace-panel').style.display = 'block';
   }
+  syncCameraStream();
 }
 
 async function loadStudentPortal() {
