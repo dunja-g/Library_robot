@@ -182,6 +182,10 @@ def test_status_exposes_dashboard_sensor_telemetry():
     assert telemetry["imu"]["heading_fused_deg"] == 1.95
     assert telemetry["imu"]["speed_correction"] == -4
     assert 0 <= telemetry["segment_progress_percent"] <= 100
+    status = controller.get_status()
+    assert status["active_controller"] == "GridController"
+    assert status["return_strategy"] == "direct_reverse"
+    assert status["return_actions"] == ["BACKWARD", "TURN_RIGHT", "BACKWARD"]
 
 
 def test_reset_cancels_grid_plan_and_stops():

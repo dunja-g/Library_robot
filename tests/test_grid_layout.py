@@ -77,6 +77,38 @@ def test_imu_turn_source_does_not_require_turn_tick_calibration():
     assert route["outbound"][1]["target_ticks"] == 0
 
 
+def test_imu_turns_do_not_silently_switch_straight_segments_to_timed_mode():
+    route = build_grid_route(
+        "1A",
+        GridGeometry(80, 75, 35, forward_speed_cms=20),
+        EncoderCalibration(
+            ticks_per_revolution=4,
+            wheel_diameter_cm=6.5,
+        ),
+        turn_source="imu",
+    )
+
+    assert route["outbound"][0]["target_ticks"] > 0
+    assert route["outbound"][0]["target_seconds"] == 0.0
+    assert route["return"][0]["target_ticks"] > 0
+    assert route["return"][0]["action"] == "BACKWARD"
+
+
+def test_timed_linear_mode_requires_explicit_selection():
+    route = build_grid_route(
+        "1B",
+        GridGeometry(80, 75, 35, forward_speed_cms=20),
+        EncoderCalibration(),
+        turn_source="imu",
+        linear_source="timed",
+    )
+
+    assert route["outbound"][0]["target_ticks"] == 0
+    assert route["outbound"][0]["target_seconds"] == 4.0
+    assert route["return"][-1]["action"] == "BACKWARD"
+    assert route["return"][-1]["target_seconds"] == 4.0
+
+
 def test_confirmed_encoder_and_wheel_defaults(monkeypatch):
     monkeypatch.delenv("LIBRARY_ROBOT_ENCODER_TICKS_PER_REV", raising=False)
     monkeypatch.delenv("LIBRARY_ROBOT_WHEEL_DIAMETER_CM", raising=False)

@@ -44,8 +44,24 @@ def test_app_is_fixed_grid_only_and_lists_numbered_books(monkeypatch, tmp_path):
     mode = client.get("/navigation_mode").get_json()
     assert mode["mode"] == "grid"
     assert mode["marker_scanning"] is False
+    assert mode["linear_source"] == "encoder"
+    assert mode["turn_source"] == "imu"
+    assert mode["return_strategy"] == "direct_reverse"
+    assert mode["active_controller"] == "GridController"
+    assert mode["legacy_robot_controller_active"] is False
     assert "Deep Learning" in client.get("/books").get_json()
     assert client.post("/request_box", json={"box_id": "1A"}).status_code == 404
+
+
+def test_auto_return_setting_controls_pickup_confirmation(monkeypatch, tmp_path):
+    monkeypatch.setenv("LIBRARY_ROBOT_AUTO_RETURN", "false")
+    module, client = load_mock_app(monkeypatch, tmp_path)
+
+    mode = client.get("/navigation_mode").get_json()
+    plan = module._build_borrowing_plan(module.get_book("Deep Learning"))
+
+    assert mode["auto_return"] is False
+    assert plan["pickup_confirmation_required"] is True
 
 
 def test_dashboard_contains_search_map_and_live_status_controls(monkeypatch, tmp_path):
