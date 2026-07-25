@@ -54,6 +54,21 @@ def test_aruco_hybrid_route_uses_hallway_and_row_markers():
     ]
 
 
+def test_return_backout_includes_approach_extra_distance():
+    geometry = GridGeometry(80, 75, 35)
+    calibration = EncoderCalibration(10, 420, 840)
+    base = build_grid_route("1A", geometry, calibration, turn_source="imu")
+    extended = build_grid_route(
+        "1A",
+        geometry,
+        calibration,
+        turn_source="imu",
+        return_backout_extra_cm=8.0,
+    )
+    assert extended["return"][0]["target_ticks"] > base["return"][0]["target_ticks"]
+    assert extended["return"][0]["track_aruco_id"] == 1
+
+
 def test_a_and_b_use_mirrored_turns():
     geometry = GridGeometry(80, 75, 35)
     calibration = EncoderCalibration(10, 420, 840)

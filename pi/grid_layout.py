@@ -232,6 +232,7 @@ def build_grid_route(
     turn_source: str = "encoder",
     linear_source: str = "encoder",
     vision_source: str = "aruco",
+    return_backout_extra_cm: float = 0.0,
 ) -> dict:
     """Build a Dock-to-box route and blind encoder reverse return.
 
@@ -247,6 +248,8 @@ def build_grid_route(
         raise ValueError("vision_source must be 'encoder' or 'aruco'")
     timed_mode = linear_source == "timed"
     aruco_mode = vision_source == "aruco"
+    if return_backout_extra_cm < 0:
+        raise ValueError("return_backout_extra_cm must be non-negative")
 
     if timed_mode:
         if geometry.forward_speed_cms is None:
@@ -329,10 +332,28 @@ def build_grid_route(
             },
         ]
 
+    if return_backout_extra_cm > 0:
+        if timed_mode:
+            return_route[0]["target_seconds"] = round(
+                float(return_route[0]["target_seconds"])
+                + return_backout_extra_cm / speed,
+                3,
+            )
+        else:
+            return_route[0]["target_ticks"] = int(return_route[0]["target_ticks"]) + (
+                calibration.distance_ticks(return_backout_extra_cm)
+            )
+
     if aruco_mode:
         row_marker = row_marker_id(row)
         hallway = dict(hallway_step)
         hallway["track_aruco_id"] = HALLWAY_MARKER_ID
+        return_escape = dict(return_route[0])
+        return_escape["track_aruco_id"] = row_marker
+        return_dock = dict(return_route[2])
+        return_dock["track_aruco_id"] = HALLWAY_MARKER_ID
+        return_route[0] = return_escape
+        return_route[2] = return_dock
         outbound = [
             _marker_step(
                 "ARUCO_ALIGN",

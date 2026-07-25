@@ -94,19 +94,20 @@ def test_obstacle_stops_before_encoder_motion_continues():
     assert serial.commands[-1] == "STOP"
 
 
-def test_reverse_keeps_side_ultrasonic_safety_active():
+def test_reverse_escape_ignores_side_shelf_readings_during_return():
     controller, serial, clock = make_controller()
     for _ in range(3):
         complete_step(controller, serial)
     clock.now = 1
     controller.step()
+    assert controller.get_status()["phase"] == "RETURNING"
     assert controller.get_status()["current_action"] == "BACKWARD"
 
     serial.ultrasonic["left"] = 10
+    serial.ultrasonic["right"] = 8
     controller.step()
 
-    assert controller.get_state() == GridState.STOPPED.value
-    assert controller.get_status()["reason"] == "left_obstacle"
+    assert controller.get_state() == GridState.MOVING.value
 
 
 def test_reverse_ignores_front_shelf_but_requires_valid_sensor_data():

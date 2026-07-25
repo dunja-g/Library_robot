@@ -41,6 +41,7 @@ class GridController:
         aruco_align_pulse_seconds: float = 0.2,
         aruco_align_settle_seconds: float = 2.0,
         aruco_align_fine_pulse_seconds: float = 0.12,
+        return_obstacle_distance_cm: float = 10.0,
         aruco_approach_extra_ticks: float = 0.0,
         aruco_approach_extra_seconds: float = 0.0,
         base_trim: int = 15,
@@ -73,6 +74,8 @@ class GridController:
             raise ValueError("aruco_approach_extra_ticks must be non-negative")
         if aruco_approach_extra_seconds < 0:
             raise ValueError("aruco_approach_extra_seconds must be non-negative")
+        if return_obstacle_distance_cm <= 0:
+            raise ValueError("return_obstacle_distance_cm must be positive")
         self.serial = serial_bridge
         self.obstacle_distance_cm = float(obstacle_distance_cm)
         self.destination_dwell_seconds = float(destination_dwell_seconds)
@@ -90,6 +93,7 @@ class GridController:
         self.aruco_align_fine_pulse_seconds = float(aruco_align_fine_pulse_seconds)
         self.aruco_approach_extra_ticks = float(aruco_approach_extra_ticks)
         self.aruco_approach_extra_seconds = float(aruco_approach_extra_seconds)
+        self.return_obstacle_distance_cm = float(return_obstacle_distance_cm)
         self.base_trim = int(base_trim)
         self.aruco_steering_kp = float(aruco_steering_kp)
         self._clock = clock
@@ -875,18 +879,33 @@ class GridController:
             return False
         self._latest_ultrasonic = dict(readings)
 
+        step = self._current_step()
+        action = step.get("action") if step is not None else None
+
+        # During reverse escape from a shelf the front sensor faces books and
+        # the side sensors often see aisle walls. Only require valid readings.
+        if self.phase == "RETURNING" and action == "BACKWARD":
+            return True
+
         # The chassis has no rear-facing ultrasonic sensor. During reverse we
         # can still validate all sensor data and enforce both side sensors, but
         # the front-centre sensor faces the shelf we are backing away from.
-        # The rear corridor therefore must be cleared and supervised.
-        step = self._current_step()
-        if step is not None and step.get("action") == "BACKWARD":
+        if action == "BACKWARD":
             directions = ("left", "right")
+            threshold = self.obstacle_distance_cm
+        elif self.phase == "RETURNING" and action in {
+            "TURN_LEFT",
+            "TURN_RIGHT",
+            "UTURN",
+        }:
+            directions = ("left", "right")
+            threshold = self.return_obstacle_distance_cm
         else:
             directions = ("left", "center", "right")
+            threshold = self.obstacle_distance_cm
 
         for direction in directions:
-            if float(readings[direction]) < self.obstacle_distance_cm:
+            if float(readings[direction]) < threshold:
                 self._safe_stop(f"{direction}_obstacle")
                 return False
         return True
