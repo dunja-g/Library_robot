@@ -303,7 +303,7 @@ class MissingArucoDetector:
         return None
 
 
-def test_aruco_align_uses_pulse_rotation_before_detection():
+def test_aruco_align_looks_before_search_rotation():
     serial, clock = FakeSerial(), FakeClock()
     frame = np.zeros((480, 640, 3), dtype=np.uint8)
 
@@ -325,20 +325,17 @@ def test_aruco_align_uses_pulse_rotation_before_detection():
     controller.request_grid_mission(plan)
 
     controller.step()
+    assert serial.commands[-1] == "STOP"
+    assert controller._align_settle_until is not None
+    assert "ROTATE" not in serial.commands
+
+    finish_align_settle(controller, clock)
     assert serial.commands[-1] == "ROTATE_LEFT"
     assert controller._align_pulse_deadline is not None
 
     finish_align_pulse(controller, clock)
-    assert "STOP" in serial.commands
     assert serial.commands[-1] == "STOP"
     assert controller._align_settle_until is not None
-    assert controller.get_status()["current_action"] == "ARUCO_ALIGN"
-
-    controller.step()
-    assert serial.commands[-1] == "STOP"
-
-    finish_align_settle(controller, clock)
-    assert serial.commands[-1] == "ROTATE_LEFT"
 
 
 class OffCenterArucoDetector:
@@ -373,6 +370,7 @@ def test_aruco_align_fine_pulses_when_marker_is_off_center():
     )
     controller.request_grid_mission(plan)
 
+    finish_align_settle(controller, clock)
     controller.step()
     assert serial.commands[-1] == "ROTATE_RIGHT"
     assert controller._align_pulse_deadline is not None
@@ -398,6 +396,7 @@ def test_aruco_align_advances_after_stop_and_detection():
     )
     controller.request_grid_mission(plan)
 
+    finish_align_settle(controller, clock)
     controller.step()
     assert controller.get_status()["current_action"] == "FORWARD"
 
@@ -493,12 +492,15 @@ def test_aruco_hybrid_route_completes_with_mock_vision():
     controller.request_grid_mission(plan)
     assert controller.get_status()["current_action"] == "ARUCO_ALIGN"
 
+    finish_align_settle(controller, clock)
     controller.step()
     complete_step(controller, serial)
     assert controller.get_status()["current_action"] == "TURN_LEFT"
 
     serial.turn_status = "DONE"
-    for _ in range(40):
+    for _ in range(80):
+        if controller._align_settle_until is not None:
+            finish_align_settle(controller, clock)
         controller.step()
         if controller.get_state() == GridState.ARRIVED.value:
             break

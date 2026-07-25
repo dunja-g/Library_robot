@@ -397,10 +397,9 @@ class GridController:
         action = step["action"]
         if action == "ARUCO_ALIGN":
             self._align_pulse_deadline = None
-            self._align_settle_until = None
             self._align_pulse_is_fine = False
             self._step_deadline = self._clock() + self.aruco_scan_timeout_seconds
-            self.state = GridState.TURNING
+            self._begin_align_settle()
             return
         if action == "ARUCO_APPROACH":
             self._step_deadline = self._clock() + self.aruco_scan_timeout_seconds
@@ -714,7 +713,7 @@ class GridController:
         if detection is None:
             self._target_missing_frames += 1
             self._aligned_frames = 0
-            self._start_align_pulse("left", fine=False)
+            self._begin_align_settle()
             return
         self._handle_align_detection(frame, detection, on_centered=on_centered)
 
