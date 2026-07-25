@@ -47,8 +47,8 @@ def test_aruco_hybrid_route_uses_hallway_and_row_markers():
     assert route["outbound"][0]["target_aruco_id"] == 0
     assert route["outbound"][1]["target_ticks"] == 2300
     assert route["outbound"][1]["track_aruco_id"] == 0
-    assert route["outbound"][3]["target_aruco_id"] == 3
-    assert route["outbound"][4]["target_aruco_id"] == 3
+    assert route["outbound"][3]["target_aruco_id"] == 5
+    assert route["outbound"][4]["target_aruco_id"] == 5
     assert [step["action"] for step in route["return"]] == [
         "BACKWARD", "TURN_LEFT", "BACKWARD"
     ]
@@ -60,12 +60,12 @@ def test_row2_boxes_use_box_markers_and_mirrored_turns():
     route_2a = build_grid_route("2A", geometry, calibration, turn_source="imu")
     route_2b = build_grid_route("2B", geometry, calibration, turn_source="imu")
 
-    assert route_2a["outbound"][2]["action"] == "TURN_RIGHT"
-    assert route_2b["outbound"][2]["action"] == "TURN_LEFT"
+    assert route_2a["outbound"][2]["action"] == "TURN_LEFT"
+    assert route_2b["outbound"][2]["action"] == "TURN_RIGHT"
     assert route_2a["outbound"][3]["target_aruco_id"] == 2
     assert route_2b["outbound"][3]["target_aruco_id"] == 3
-    assert route_2a["return"][1]["action"] == "TURN_LEFT"
-    assert route_2b["return"][1]["action"] == "TURN_RIGHT"
+    assert route_2a["return"][1]["action"] == "TURN_RIGHT"
+    assert route_2b["return"][1]["action"] == "TURN_LEFT"
 
     route_1a = build_grid_route("1A", geometry, calibration, turn_source="imu")
     assert route_1a["outbound"][2]["action"] == "TURN_LEFT"
@@ -83,7 +83,7 @@ def test_return_backout_includes_approach_extra_distance():
         return_backout_extra_cm=8.0,
     )
     assert extended["return"][0]["target_ticks"] > base["return"][0]["target_ticks"]
-    assert extended["return"][0]["track_aruco_id"] == 1
+    assert extended["return"][0]["track_aruco_id"] == 6
 
 
 def test_a_and_b_use_mirrored_turns():

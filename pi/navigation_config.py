@@ -48,6 +48,7 @@ class NavigationConfig:
     aruco_align_fine_pulse_seconds: float = 0.12
     aruco_approach_extra_cm: float = 8.0
     return_obstacle_distance_cm: float = 10.0
+    invert_turn_direction: bool = True
     turn_90_seconds: float = 0.8
     uturn_seconds: float = 1.6
     destination_dwell_seconds: float = 5.0
@@ -140,6 +141,9 @@ class NavigationConfig:
             ),
             return_obstacle_distance_cm=_env_number(
                 "LIBRARY_ROBOT_RETURN_OBSTACLE_DISTANCE_CM", 10.0, float
+            ),
+            invert_turn_direction=_env_bool(
+                "LIBRARY_ROBOT_INVERT_TURN_DIRECTION", True
             ),
             turn_90_seconds=_env_number(
                 "LIBRARY_ROBOT_TURN_90_SECONDS", 0.8, float

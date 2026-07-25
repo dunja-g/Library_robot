@@ -44,6 +44,7 @@ class GridController:
         return_obstacle_distance_cm: float = 10.0,
         aruco_approach_extra_ticks: float = 0.0,
         aruco_approach_extra_seconds: float = 0.0,
+        invert_turn_direction: bool = True,
         base_trim: int = 15,
         aruco_steering_kp: float = -0.15,
         clock=time.monotonic,
@@ -94,6 +95,7 @@ class GridController:
         self.aruco_approach_extra_ticks = float(aruco_approach_extra_ticks)
         self.aruco_approach_extra_seconds = float(aruco_approach_extra_seconds)
         self.return_obstacle_distance_cm = float(return_obstacle_distance_cm)
+        self.invert_turn_direction = bool(invert_turn_direction)
         self.base_trim = int(base_trim)
         self.aruco_steering_kp = float(aruco_steering_kp)
         self._clock = clock
@@ -463,12 +465,12 @@ class GridController:
     def _send_imu_turn(self, action: str) -> None:
         step = self._current_step()
         deg = step.get("target_degrees") if step else None
-        if action == "TURN_LEFT":
-            sent = self.serial.send_turn_left(deg)
+        if action in {"TURN_LEFT", "UTURN"}:
+            sent = self.serial.send_turn_right(deg) if self.invert_turn_direction else self.serial.send_turn_left(deg)
         elif action == "TURN_RIGHT":
-            sent = self.serial.send_turn_right(deg)
+            sent = self.serial.send_turn_left(deg) if self.invert_turn_direction else self.serial.send_turn_right(deg)
         else:
-            sent = self.serial.send_turn_uturn(deg)
+            raise ValueError(f"Unsupported IMU turn action: {action}")
         if not sent:
             self._safe_stop("imu_turn_command_failed")
 
@@ -591,7 +593,15 @@ class GridController:
         else:
             self._start_current_step()
 
+    def _physical_turn_direction(self, direction: str) -> str:
+        if direction not in {"left", "right"}:
+            raise ValueError("direction must be 'left' or 'right'")
+        if self.invert_turn_direction:
+            return "right" if direction == "left" else "left"
+        return direction
+
     def _start_align_pulse(self, direction: str, *, fine: bool = False) -> None:
+        direction = self._physical_turn_direction(direction)
         duration = (
             self.aruco_align_fine_pulse_seconds
             if fine
@@ -864,9 +874,17 @@ class GridController:
         elif action == "BACKWARD":
             sent = self.serial.send_backward()
         elif action in {"TURN_LEFT", "UTURN"}:
-            sent = self.serial.send_rotate_left()
+            sent = (
+                self.serial.send_rotate_right()
+                if self.invert_turn_direction
+                else self.serial.send_rotate_left()
+            )
         elif action == "TURN_RIGHT":
-            sent = self.serial.send_rotate_right()
+            sent = (
+                self.serial.send_rotate_left()
+                if self.invert_turn_direction
+                else self.serial.send_rotate_right()
+            )
         else:
             raise ValueError(f"Unsupported grid action: {action}")
         if not sent:
@@ -882,22 +900,22 @@ class GridController:
         step = self._current_step()
         action = step.get("action") if step is not None else None
 
-        # During reverse escape from a shelf the front sensor faces books and
-        # the side sensors often see aisle walls. Only require valid readings.
+        # Vision alignment, turns, and reverse escape only require valid readings.
+        if action in {"ARUCO_ALIGN", "ARUCO_APPROACH", "ARUCO_GUIDED_FORWARD"}:
+            return True
+        if self.state == GridState.TURNING:
+            return True
         if self.phase == "RETURNING" and action == "BACKWARD":
             return True
 
-        # The chassis has no rear-facing ultrasonic sensor. During reverse we
-        # can still validate all sensor data and enforce both side sensors, but
-        # the front-centre sensor faces the shelf we are backing away from.
-        if action == "BACKWARD":
+        # Side sensors face shelf walls in the aisle; check front path only.
+        if action == "FORWARD":
+            directions = ("center",)
+            threshold = self.obstacle_distance_cm
+        elif action == "BACKWARD":
             directions = ("left", "right")
             threshold = self.obstacle_distance_cm
-        elif self.phase == "RETURNING" and action in {
-            "TURN_LEFT",
-            "TURN_RIGHT",
-            "UTURN",
-        }:
+        elif self.phase == "RETURNING":
             directions = ("left", "right")
             threshold = self.return_obstacle_distance_cm
         else:

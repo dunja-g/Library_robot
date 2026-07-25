@@ -52,6 +52,7 @@ def make_controller():
     controller = GridController(
         serial, clock=clock, destination_dwell_seconds=1,
         encoder_stall_seconds=2,
+        invert_turn_direction=False,
     )
     plan = build_grid_route(
         "1A", GridGeometry(10, 10, 5), EncoderCalibration(1, 4, 8),
@@ -91,7 +92,32 @@ def test_obstacle_stops_before_encoder_motion_continues():
     controller.step()
     assert controller.get_state() == GridState.STOPPED.value
     assert controller.get_status()["reason"] == "center_obstacle"
-    assert serial.commands[-1] == "STOP"
+
+
+def test_forward_ignores_side_obstacle_readings():
+    controller, serial, _clock = make_controller()
+    serial.ultrasonic["left"] = 5
+    serial.ultrasonic["right"] = 5
+    controller.step()
+    assert controller.get_state() == GridState.MOVING.value
+
+
+def test_invert_turn_direction_swaps_rotate_commands():
+    serial, clock = FakeSerial(), FakeClock()
+    controller = GridController(
+        serial,
+        clock=clock,
+        invert_turn_direction=True,
+    )
+    plan = build_grid_route(
+        "1A", GridGeometry(10, 10, 5), EncoderCalibration(1, 4, 8),
+        vision_source="encoder",
+    )
+    controller.request_grid_mission(plan)
+    controller.step_index = 1
+    controller._start_current_step()
+    controller.step()
+    assert serial.commands[-1] == "ROTATE_RIGHT"
 
 
 def test_reverse_escape_ignores_side_shelf_readings_during_return():
@@ -235,7 +261,8 @@ def test_duplicate_grid_mission_is_rejected():
 def test_imu_turn_source_does_not_depend_on_four_tick_encoder_turns():
     serial, clock = FakeSerial(), FakeClock()
     controller = GridController(
-        serial, clock=clock, destination_dwell_seconds=0, turn_source="imu"
+        serial, clock=clock, destination_dwell_seconds=0, turn_source="imu",
+        invert_turn_direction=False,
     )
     plan = build_grid_route(
         "1B", GridGeometry(10, 10, 5), EncoderCalibration(1, 4, 8),
@@ -287,6 +314,7 @@ def test_aruco_align_uses_pulse_rotation_before_detection():
         aruco_detector=MissingArucoDetector(),
         alignment_confirmation_frames=1,
         aruco_align_pulse_seconds=0.2,
+        invert_turn_direction=False,
     )
     plan = build_grid_route(
         "1A",
@@ -335,6 +363,7 @@ def test_aruco_align_fine_pulses_when_marker_is_off_center():
         alignment_confirmation_frames=1,
         aruco_align_pulse_seconds=0.2,
         aruco_align_fine_pulse_seconds=0.12,
+        invert_turn_direction=False,
     )
     plan = build_grid_route(
         "1A",

@@ -244,6 +244,7 @@ def test_duplicate_request_and_checkin_are_rejected_while_active(
 def test_obstacle_stop_cancels_pending_without_database_write(
     monkeypatch, tmp_path
 ):
+    monkeypatch.setenv("LIBRARY_ROBOT_GRID_VISION_SOURCE", "encoder")
     module, client = load_mock_app(monkeypatch, tmp_path)
     start_pending_mission(module, client)
     module.controller.serial.get_ultrasonic = lambda: {

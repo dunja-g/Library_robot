@@ -411,6 +411,7 @@ else:
         aruco_approach_extra_ticks=approach_extra_ticks,
         aruco_approach_extra_seconds=approach_extra_seconds,
         return_obstacle_distance_cm=config.return_obstacle_distance_cm,
+        invert_turn_direction=config.invert_turn_direction,
         base_trim=base_trim,
     )
 
