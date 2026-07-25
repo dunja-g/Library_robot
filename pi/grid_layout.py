@@ -22,12 +22,25 @@ MOTION_ACTIONS = {
 # Printable markers from aruco_codes/generate_markers.py (DICT_5X5_50, IDs 0–4).
 HALLWAY_MARKER_ID = 0
 ROW_MARKER_IDS = {1: 1, 2: 2, 3: 3}
+# Per-box markers from data/generate_aruco_shelf_markers.py (IDs 1–6 on shelf fronts).
+BOX_MARKER_IDS = {
+    "1A": 6,
+    "1B": 1,
+    "2A": 2,
+    "2B": 3,
+    "3A": 4,
+    "3B": 5,
+}
+# Rows where aisle geometry requires swapping A/B turn directions (field fix for row 2).
+ROW_SIDE_TURN_INVERT = frozenset({2})
 GRID_MARKERS = {
     HALLWAY_MARKER_ID: "Main hallway",
-    1: "Row 1 aisle",
-    2: "Row 2 aisle",
-    3: "Row 3 aisle",
-    4: "Spare marker",
+    1: "Row 1 aisle / box 1B",
+    2: "Box 2A",
+    3: "Box 2B",
+    4: "Box 3A",
+    5: "Box 3B",
+    6: "Box 1A",
 }
 
 
@@ -199,6 +212,42 @@ def row_marker_id(row: int) -> int:
     return ROW_MARKER_IDS[row]
 
 
+def box_marker_id(box_id: str) -> int:
+    normalized = normalize_box_id(box_id)
+    if normalized not in BOX_MARKER_IDS:
+        raise ValueError(f"No ArUco marker mapped for box {normalized}")
+    return BOX_MARKER_IDS[normalized]
+
+
+def approach_marker_id(box_id: str) -> int:
+    """Marker used to align and approach a specific box."""
+    normalized = normalize_box_id(box_id)
+    row = int(normalized[0])
+    if row in ROW_SIDE_TURN_INVERT:
+        return box_marker_id(normalized)
+    return row_marker_id(row)
+
+
+def outward_turn_for(box_id: str) -> str:
+    normalized = normalize_box_id(box_id)
+    row = int(normalized[0])
+    side = normalized[1]
+    invert = row in ROW_SIDE_TURN_INVERT
+    if side == "A":
+        return "TURN_RIGHT" if invert else "TURN_LEFT"
+    return "TURN_LEFT" if invert else "TURN_RIGHT"
+
+
+def reverse_turn_for(box_id: str) -> str:
+    normalized = normalize_box_id(box_id)
+    row = int(normalized[0])
+    side = normalized[1]
+    invert = row in ROW_SIDE_TURN_INVERT
+    if side == "A":
+        return "TURN_LEFT" if invert else "TURN_RIGHT"
+    return "TURN_RIGHT" if invert else "TURN_LEFT"
+
+
 def _marker_step(action: str, label: str, marker_id: int, **extra) -> dict:
     step = {
         "action": action,
@@ -268,10 +317,9 @@ def build_grid_route(
 
     row = int(box_id[0])
     side = box_id[1]
-    outward_turn = "TURN_LEFT" if side == "A" else "TURN_RIGHT"
+    outward_turn = outward_turn_for(box_id)
     return_turn = "TURN_RIGHT" if side == "A" else "TURN_LEFT"
-    # To face the original direction, we do the opposite of the outward turn
-    reverse_turn = "TURN_RIGHT" if side == "A" else "TURN_LEFT"
+    reverse_turn = reverse_turn_for(box_id)
 
     if timed_mode:
         speed = float(geometry.forward_speed_cms)
@@ -345,11 +393,11 @@ def build_grid_route(
             )
 
     if aruco_mode:
-        row_marker = row_marker_id(row)
+        shelf_marker = approach_marker_id(box_id)
         hallway = dict(hallway_step)
         hallway["track_aruco_id"] = HALLWAY_MARKER_ID
         return_escape = dict(return_route[0])
-        return_escape["track_aruco_id"] = row_marker
+        return_escape["track_aruco_id"] = shelf_marker
         return_dock = dict(return_route[2])
         return_dock["track_aruco_id"] = HALLWAY_MARKER_ID
         return_route[0] = return_escape
@@ -364,13 +412,13 @@ def build_grid_route(
             turn_step,
             _marker_step(
                 "ARUCO_ALIGN",
-                f"Align on row {row} marker",
-                row_marker,
+                f"Align on {box_id} marker",
+                shelf_marker,
             ),
             _marker_step(
                 "ARUCO_APPROACH",
                 f"Approach shelf at {box_id}",
-                row_marker,
+                shelf_marker,
             ),
         ]
     else:

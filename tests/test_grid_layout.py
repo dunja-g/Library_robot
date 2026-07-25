@@ -54,6 +54,23 @@ def test_aruco_hybrid_route_uses_hallway_and_row_markers():
     ]
 
 
+def test_row2_boxes_use_box_markers_and_mirrored_turns():
+    geometry = GridGeometry(80, 75, 35)
+    calibration = EncoderCalibration(10, 420, 840)
+    route_2a = build_grid_route("2A", geometry, calibration, turn_source="imu")
+    route_2b = build_grid_route("2B", geometry, calibration, turn_source="imu")
+
+    assert route_2a["outbound"][2]["action"] == "TURN_RIGHT"
+    assert route_2b["outbound"][2]["action"] == "TURN_LEFT"
+    assert route_2a["outbound"][3]["target_aruco_id"] == 2
+    assert route_2b["outbound"][3]["target_aruco_id"] == 3
+    assert route_2a["return"][1]["action"] == "TURN_LEFT"
+    assert route_2b["return"][1]["action"] == "TURN_RIGHT"
+
+    route_1a = build_grid_route("1A", geometry, calibration, turn_source="imu")
+    assert route_1a["outbound"][2]["action"] == "TURN_LEFT"
+
+
 def test_return_backout_includes_approach_extra_distance():
     geometry = GridGeometry(80, 75, 35)
     calibration = EncoderCalibration(10, 420, 840)
