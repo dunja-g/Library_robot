@@ -396,9 +396,6 @@ def test_aruco_approach_creeps_forward_after_target_area():
     controller._start_current_step()
 
     controller.step()
-    assert controller._current_step()["center_ready"] is True
-
-    controller.step()
     assert controller._current_step()["aruco_creep_active"] is True
     assert "ENC_RESET" in serial.commands
     assert serial.commands[-1] == "FORWARD"
@@ -409,17 +406,22 @@ def test_aruco_approach_creeps_forward_after_target_area():
     assert controller.get_state() == GridState.ARRIVED.value
 
 
-def test_aruco_approach_waits_for_center_before_forward():
+def test_encoder_forward_applies_soft_aruco_tracking():
     serial, clock = FakeSerial(), FakeClock()
     frame = np.zeros((480, 640, 3), dtype=np.uint8)
 
+    class TrackingSerial(FakeSerial):
+        def set_trim(self, value):
+            self.commands.append(f"TRIM={value}")
+            return True
+
+    serial = TrackingSerial()
     controller = GridController(
         serial,
         clock=clock,
         frame_provider=lambda: frame,
         aruco_detector=OffCenterArucoDetector(),
-        alignment_confirmation_frames=1,
-        aruco_target_area_px=8000.0,
+        base_trim=15,
     )
     plan = build_grid_route(
         "1A",
@@ -428,12 +430,11 @@ def test_aruco_approach_waits_for_center_before_forward():
         turn_source="imu",
     )
     controller.request_grid_mission(plan)
-    controller.step_index = 4
+    controller.step_index = 1
     controller._start_current_step()
-
     controller.step()
-    assert "FORWARD" not in serial.commands
-    assert serial.commands[-1] == "ROTATE_RIGHT"
+    assert serial.commands[-1] == "FORWARD"
+    assert any(command.startswith("TRIM=") for command in serial.commands)
 
 
 def test_aruco_hybrid_route_completes_with_mock_vision():
@@ -462,7 +463,6 @@ def test_aruco_hybrid_route_completes_with_mock_vision():
     controller.request_grid_mission(plan)
     assert controller.get_status()["current_action"] == "ARUCO_ALIGN"
 
-    controller.step()
     controller.step()
     complete_step(controller, serial)
     assert controller.get_status()["current_action"] == "TURN_LEFT"
