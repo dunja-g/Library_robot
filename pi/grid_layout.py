@@ -331,13 +331,19 @@ def build_grid_route(
 
     if aruco_mode:
         row_marker = row_marker_id(row)
+        hallway = dict(hallway_step)
+        hallway["target_aruco_id"] = HALLWAY_MARKER_ID
+        back_out = dict(return_route[0])
+        back_out["target_aruco_id"] = row_marker
+        reverse_dock = dict(return_route[2])
+        reverse_dock["target_aruco_id"] = HALLWAY_MARKER_ID
         outbound = [
             _marker_step(
                 "ARUCO_ALIGN",
                 "Align on hallway marker",
                 HALLWAY_MARKER_ID,
             ),
-            hallway_step,
+            hallway,
             turn_step,
             _marker_step(
                 "ARUCO_ALIGN",
@@ -349,6 +355,21 @@ def build_grid_route(
                 f"Approach shelf at {box_id}",
                 row_marker,
             ),
+        ]
+        return_route = [
+            _marker_step(
+                "ARUCO_ALIGN",
+                f"Align on row {row} marker before backing out",
+                row_marker,
+            ),
+            back_out,
+            return_route[1],
+            _marker_step(
+                "ARUCO_ALIGN",
+                "Align on hallway marker before return",
+                HALLWAY_MARKER_ID,
+            ),
+            reverse_dock,
         ]
     else:
         outbound = [hallway_step, turn_step, approach_step]

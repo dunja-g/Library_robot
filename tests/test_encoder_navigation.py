@@ -396,6 +396,9 @@ def test_aruco_approach_creeps_forward_after_target_area():
     controller._start_current_step()
 
     controller.step()
+    assert controller._current_step()["center_ready"] is True
+
+    controller.step()
     assert controller._current_step()["aruco_creep_active"] is True
     assert "ENC_RESET" in serial.commands
     assert serial.commands[-1] == "FORWARD"
@@ -404,6 +407,33 @@ def test_aruco_approach_creeps_forward_after_target_area():
     controller.step()
     assert serial.commands[-1] == "STOP"
     assert controller.get_state() == GridState.ARRIVED.value
+
+
+def test_aruco_approach_waits_for_center_before_forward():
+    serial, clock = FakeSerial(), FakeClock()
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+
+    controller = GridController(
+        serial,
+        clock=clock,
+        frame_provider=lambda: frame,
+        aruco_detector=OffCenterArucoDetector(),
+        alignment_confirmation_frames=1,
+        aruco_target_area_px=8000.0,
+    )
+    plan = build_grid_route(
+        "1A",
+        GridGeometry(10, 10, 5),
+        EncoderCalibration(1, 4, 8),
+        turn_source="imu",
+    )
+    controller.request_grid_mission(plan)
+    controller.step_index = 4
+    controller._start_current_step()
+
+    controller.step()
+    assert "FORWARD" not in serial.commands
+    assert serial.commands[-1] == "ROTATE_RIGHT"
 
 
 def test_aruco_hybrid_route_completes_with_mock_vision():
@@ -433,12 +463,14 @@ def test_aruco_hybrid_route_completes_with_mock_vision():
     assert controller.get_status()["current_action"] == "ARUCO_ALIGN"
 
     controller.step()
+    controller.step()
     complete_step(controller, serial)
     assert controller.get_status()["current_action"] == "TURN_LEFT"
 
     serial.turn_status = "DONE"
-    controller.step()
-    controller.step()
-    controller.step()
+    for _ in range(40):
+        controller.step()
+        if controller.get_state() == GridState.ARRIVED.value:
+            break
 
     assert controller.get_state() == GridState.ARRIVED.value

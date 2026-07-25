@@ -46,11 +46,18 @@ def test_aruco_hybrid_route_uses_hallway_and_row_markers():
     ]
     assert route["outbound"][0]["target_aruco_id"] == 0
     assert route["outbound"][1]["target_ticks"] == 2300
+    assert route["outbound"][1]["target_aruco_id"] == 0
     assert route["outbound"][3]["target_aruco_id"] == 3
     assert route["outbound"][4]["target_aruco_id"] == 3
     assert [step["action"] for step in route["return"]] == [
-        "BACKWARD", "TURN_LEFT", "BACKWARD"
+        "ARUCO_ALIGN",
+        "BACKWARD",
+        "TURN_LEFT",
+        "ARUCO_ALIGN",
+        "BACKWARD",
     ]
+    assert route["return"][1]["target_aruco_id"] == 3
+    assert route["return"][4]["target_aruco_id"] == 0
 
 
 def test_a_and_b_use_mirrored_turns():
@@ -107,10 +114,11 @@ def test_imu_turns_do_not_silently_switch_straight_segments_to_timed_mode():
             wheel_diameter_cm=6.5,
         ),
         turn_source="imu",
+        vision_source="encoder",
     )
 
-    assert route["outbound"][1]["target_ticks"] > 0
-    assert route["outbound"][1]["target_seconds"] == 0.0
+    assert route["outbound"][0]["target_ticks"] > 0
+    assert route["outbound"][0]["target_seconds"] == 0.0
     assert route["return"][0]["target_ticks"] > 0
     assert route["return"][0]["action"] == "BACKWARD"
 

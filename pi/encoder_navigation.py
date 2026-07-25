@@ -329,6 +329,13 @@ class GridController:
                 if action == "ARUCO_GUIDED_FORWARD":
                     self._step_aruco_guided_forward()
                     return
+                if self._step_requires_center_before_motion(step):
+                    self._step_aruco_centering(
+                        step,
+                        int(step["target_aruco_id"]),
+                        on_centered=lambda: self._mark_step_centered(step),
+                    )
+                    return
                 if self.state == GridState.TURNING and self.turn_source == "imu":
                     self._step_imu_turn()
                     return
@@ -385,6 +392,7 @@ class GridController:
         step.pop("aruco_creep_active", None)
         step.pop("aruco_creep_target_ticks", None)
         step.pop("aruco_creep_deadline", None)
+        step.pop("center_ready", None)
         self._aligned_frames = 0
         self._target_missing_frames = 0
         action = step["action"]
@@ -396,10 +404,13 @@ class GridController:
             self.state = GridState.TURNING
             return
         if action == "ARUCO_APPROACH":
+            self._align_pulse_deadline = None
+            self._align_settle_until = None
+            self._align_pulse_is_fine = False
             self._step_deadline = self._clock() + self.aruco_scan_timeout_seconds
             self._latest_encoders = {"left": 0, "right": 0}
             self._latest_odometry = None
-            self.state = GridState.MOVING
+            self.state = GridState.TURNING
             return
         if action == "ARUCO_GUIDED_FORWARD":
             if not self.serial.reset_encoders():
@@ -436,6 +447,10 @@ class GridController:
             self._last_progress_at = self._clock()
             self._latest_encoders = {"left": 0, "right": 0}
             self._latest_odometry = None
+            if self._step_requires_center_before_motion(step):
+                self._step_deadline = self._clock() + self.aruco_scan_timeout_seconds
+                self.state = GridState.TURNING
+                return
             self._step_deadline = self._clock() + step["target_seconds"]
             self.state = GridState.MOVING
             self._send_action(step["action"])
@@ -448,6 +463,10 @@ class GridController:
         self._last_progress_at = self._clock()
         self._step_deadline = None
         self._latest_encoders = {"left": 0, "right": 0}
+        if self._step_requires_center_before_motion(step):
+            self._step_deadline = self._clock() + self.aruco_scan_timeout_seconds
+            self.state = GridState.TURNING
+            return
         self.state = (
             GridState.TURNING
             if step["action"] in {"TURN_LEFT", "TURN_RIGHT", "UTURN"}
@@ -520,6 +539,14 @@ class GridController:
 
     def _step_timed_linear(self) -> None:
         """Advance a FORWARD or BACKWARD step using a time deadline instead of encoder ticks."""
+        step = self._current_step()
+        if self._step_requires_center_before_motion(step):
+            self._step_aruco_centering(
+                step,
+                int(step["target_aruco_id"]),
+                on_centered=lambda: self._mark_step_centered(step),
+            )
+            return
         if self._step_deadline is None:
             # Shouldn't happen, but recover gracefully.
             self._safe_stop("timed_step_no_deadline")
@@ -608,7 +635,37 @@ class GridController:
         self._align_settle_until = self._clock() + self.aruco_align_settle_seconds
         self.state = GridState.TURNING
 
-    def _handle_align_detection(self, frame: Any, detection: dict | None) -> None:
+    def _step_requires_center_before_motion(self, step: dict) -> bool:
+        return (
+            step.get("action") in {"FORWARD", "BACKWARD"}
+            and step.get("target_aruco_id") is not None
+            and not step.get("center_ready")
+            and self._vision_ready()
+            and self._uses_aruco_steps()
+        )
+
+    def _mark_step_centered(self, step: dict) -> None:
+        """Allow linear motion only after the marker is centred in the camera."""
+        step["center_ready"] = True
+        self._align_pulse_deadline = None
+        self._align_settle_until = None
+        self._align_pulse_is_fine = False
+        self._step_deadline = None
+        self.state = GridState.MOVING
+        if step.get("target_seconds", 0.0) > 0.0 and step["action"] in {
+            "FORWARD",
+            "BACKWARD",
+        }:
+            self._step_deadline = self._clock() + step["target_seconds"]
+            self._send_action(step["action"])
+
+    def _handle_align_detection(
+        self,
+        frame: Any,
+        detection: dict | None,
+        *,
+        on_centered,
+    ) -> None:
         if detection is None:
             self._aligned_frames = 0
             self._begin_align_settle()
@@ -621,17 +678,17 @@ class GridController:
             self._aligned_frames += 1
             if self._aligned_frames >= self.alignment_confirmation_frames:
                 self._step_deadline = None
-                self._advance_step()
+                self._align_pulse_deadline = None
+                self._align_settle_until = None
+                self._align_pulse_is_fine = False
+                on_centered()
             return
 
         self._aligned_frames = 0
         self._start_align_pulse("left" if error < 0 else "right", fine=True)
 
-    def _step_aruco_align(self) -> None:
-        """Pulse-rotate, stop, settle on miss, then search and fine-tune to centre."""
-        step = self._current_step()
-        target_id = int(step["target_aruco_id"])
-
+    def _step_aruco_centering(self, step: dict, target_id: int, *, on_centered) -> None:
+        """Pulse-rotate and settle until the marker is centred, then run ``on_centered``."""
         if self._step_deadline and self._clock() > self._step_deadline:
             self.serial.send_stop()
             self._align_pulse_deadline = None
@@ -654,7 +711,7 @@ class GridController:
                 self._aligned_frames = 0
                 self._start_align_pulse("left", fine=False)
                 return
-            self._handle_align_detection(frame, detection)
+            self._handle_align_detection(frame, detection, on_centered=on_centered)
             return
 
         if self._align_pulse_deadline is not None:
@@ -668,7 +725,7 @@ class GridController:
                 return
             if frame is None:
                 return
-            self._handle_align_detection(frame, detection)
+            self._handle_align_detection(frame, detection, on_centered=on_centered)
             return
 
         frame, detection = self._read_frame_and_detection(target_id)
@@ -681,7 +738,13 @@ class GridController:
             self._aligned_frames = 0
             self._start_align_pulse("left", fine=False)
             return
-        self._handle_align_detection(frame, detection)
+        self._handle_align_detection(frame, detection, on_centered=on_centered)
+
+    def _step_aruco_align(self) -> None:
+        """Pulse-rotate, stop, settle on miss, then search and fine-tune to centre."""
+        step = self._current_step()
+        target_id = int(step["target_aruco_id"])
+        self._step_aruco_centering(step, target_id, on_centered=self._advance_step)
 
     def _step_aruco_guided_forward(self) -> None:
         """Drive forward for a fixed encoder distance while tracking a marker."""
@@ -789,6 +852,13 @@ class GridController:
             self._step_aruco_approach_creep(step)
             return
         target_id = int(step["target_aruco_id"])
+        if not step.get("center_ready"):
+            self._step_aruco_centering(
+                step,
+                target_id,
+                on_centered=lambda: self._mark_step_centered(step),
+            )
+            return
         frame, detection = self._read_frame_and_detection(target_id)
         if frame is None and self.stop_reason:
             return

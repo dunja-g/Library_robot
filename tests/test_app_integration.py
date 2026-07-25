@@ -217,7 +217,7 @@ def test_book_is_recorded_automatically_after_arrival(monkeypatch, tmp_path):
         module.controller.step()
     
     assert module.controller.get_status()["phase"] in {"RETURNING", "COMPLETE"}
-    assert module.controller.plan["return"][0]["action"] == "BACKWARD"
+    assert module.controller.plan["return"][1]["action"] == "BACKWARD"
 
 
 
