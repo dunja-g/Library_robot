@@ -9,7 +9,9 @@ import time
 from flask import Flask, Response, jsonify, render_template, request
 from dotenv import load_dotenv
 
-load_dotenv()
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(_APP_DIR)
+load_dotenv(os.path.join(_PROJECT_ROOT, ".env"))
 
 try:
     from .borrowing_mission import BorrowingMission, BorrowingState
@@ -50,7 +52,7 @@ except ImportError:  # Supports ``python pi/app.py``.
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = _APP_DIR
 app = Flask(
     __name__,
     template_folder=os.path.join(BASE_DIR, 'templates'),
@@ -505,6 +507,13 @@ def navigation_mode():
             "marker_scanning": False,
             "grid_configured": not missing,
             "missing": missing,
+            "use_mock": USE_MOCK,
+            "grid_geometry_cm": {
+                "first_row": grid_geometry.first_row_distance_cm,
+                "row_spacing": grid_geometry.row_spacing_cm,
+                "approach": grid_geometry.box_approach_distance_cm,
+            },
+            "encoder_ticks_per_cm": encoder_calibration.resolved_ticks_per_cm,
             "linear_source": GRID_LINEAR_SOURCE,
             "turn_source": GRID_TURN_SOURCE,
             "return_strategy": "direct_reverse",
