@@ -19,7 +19,7 @@ def test_all_six_box_ids_are_available():
 def test_grid_route_is_generated_from_late_bound_dimensions():
     geometry = GridGeometry(80, 75, 35)
     calibration = EncoderCalibration(10, 420, 840)
-    route = build_grid_route("3B", geometry, calibration)
+    route = build_grid_route("3B", geometry, calibration, vision_source="encoder")
 
     assert route["box_id"] == "3B"
     assert route["outbound"] == [
@@ -32,11 +32,33 @@ def test_grid_route_is_generated_from_late_bound_dimensions():
     ]
 
 
+def test_aruco_hybrid_route_uses_hallway_and_row_markers():
+    geometry = GridGeometry(80, 75, 35)
+    calibration = EncoderCalibration(10, 420, 840)
+    route = build_grid_route("3B", geometry, calibration, turn_source="imu")
+
+    assert [step["action"] for step in route["outbound"]] == [
+        "ARUCO_ALIGN",
+        "ARUCO_GUIDED_FORWARD",
+        "TURN_RIGHT",
+        "ARUCO_ALIGN",
+        "ARUCO_APPROACH",
+    ]
+    assert route["outbound"][0]["target_aruco_id"] == 0
+    assert route["outbound"][1]["target_aruco_id"] == 0
+    assert route["outbound"][1]["target_ticks"] == 2300
+    assert route["outbound"][3]["target_aruco_id"] == 3
+    assert route["outbound"][4]["target_aruco_id"] == 3
+    assert [step["action"] for step in route["return"]] == [
+        "BACKWARD", "TURN_LEFT", "BACKWARD"
+    ]
+
+
 def test_a_and_b_use_mirrored_turns():
     geometry = GridGeometry(80, 75, 35)
     calibration = EncoderCalibration(10, 420, 840)
-    a_route = build_grid_route("1A", geometry, calibration)
-    b_route = build_grid_route("1B", geometry, calibration)
+    a_route = build_grid_route("1A", geometry, calibration, vision_source="encoder")
+    b_route = build_grid_route("1B", geometry, calibration, vision_source="encoder")
     assert a_route["outbound"][1]["action"] == "TURN_LEFT"
     assert a_route["return"][1]["action"] == "TURN_RIGHT"
     assert b_route["outbound"][1]["action"] == "TURN_RIGHT"
@@ -74,7 +96,7 @@ def test_imu_turn_source_does_not_require_turn_tick_calibration():
         ),
         turn_source="imu",
     )
-    assert route["outbound"][1]["target_ticks"] == 0
+    assert route["outbound"][2]["target_ticks"] == 0
 
 
 def test_imu_turns_do_not_silently_switch_straight_segments_to_timed_mode():
@@ -88,8 +110,8 @@ def test_imu_turns_do_not_silently_switch_straight_segments_to_timed_mode():
         turn_source="imu",
     )
 
-    assert route["outbound"][0]["target_ticks"] > 0
-    assert route["outbound"][0]["target_seconds"] == 0.0
+    assert route["outbound"][1]["target_ticks"] > 0
+    assert route["outbound"][1]["target_seconds"] == 0.0
     assert route["return"][0]["target_ticks"] > 0
     assert route["return"][0]["action"] == "BACKWARD"
 

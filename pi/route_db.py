@@ -8,11 +8,11 @@ from copy import deepcopy
 VALID_TURNS = {"NONE", "LEFT", "RIGHT", "UTURN"}
 
 MARKERS = {
-    0: {"name": "Dock", "type": "dock", "arrival_distance_cm": 30.0},
-    1: {"name": "Legacy marker 1", "type": "destination", "arrival_distance_cm": 25.0},
-    2: {"name": "Legacy marker 2", "type": "destination", "arrival_distance_cm": 25.0},
-    3: {"name": "Legacy marker 3", "type": "destination", "arrival_distance_cm": 25.0},
-    4: {"name": "Legacy marker 4", "type": "destination", "arrival_distance_cm": 25.0},
+    0: {"name": "Main hallway", "type": "waypoint", "arrival_distance_cm": 35.0},
+    1: {"name": "Row 1 aisle", "type": "waypoint", "arrival_distance_cm": 25.0},
+    2: {"name": "Row 2 aisle", "type": "waypoint", "arrival_distance_cm": 25.0},
+    3: {"name": "Row 3 aisle", "type": "waypoint", "arrival_distance_cm": 25.0},
+    4: {"name": "Spare marker", "type": "waypoint", "arrival_distance_cm": 25.0},
     101: {"name": "Main Corridor", "type": "waypoint", "arrival_distance_cm": 35.0},
     105: {"name": "Zone B Junction", "type": "waypoint", "arrival_distance_cm": 35.0},
     203: {"name": "Shelf B3", "type": "destination", "arrival_distance_cm": 35.0},

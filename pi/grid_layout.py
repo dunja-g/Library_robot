@@ -8,7 +8,27 @@ from dataclasses import dataclass
 
 
 BOX_IDS = tuple(f"{row}{column}" for row in range(1, 4) for column in ("A", "B"))
-MOTION_ACTIONS = {"FORWARD", "TURN_LEFT", "TURN_RIGHT", "UTURN"}
+MOTION_ACTIONS = {
+    "FORWARD",
+    "BACKWARD",
+    "TURN_LEFT",
+    "TURN_RIGHT",
+    "UTURN",
+    "ARUCO_ALIGN",
+    "ARUCO_GUIDED_FORWARD",
+    "ARUCO_APPROACH",
+}
+
+# Printable markers from aruco_codes/generate_markers.py (DICT_5X5_50, IDs 0–4).
+HALLWAY_MARKER_ID = 0
+ROW_MARKER_IDS = {1: 1, 2: 2, 3: 3}
+GRID_MARKERS = {
+    HALLWAY_MARKER_ID: "Main hallway",
+    1: "Row 1 aisle",
+    2: "Row 2 aisle",
+    3: "Row 3 aisle",
+    4: "Spare marker",
+}
 
 
 def normalize_box_id(box_id: str) -> str:
@@ -173,6 +193,24 @@ class EncoderCalibration:
         return max(1, round(distance_cm * self.resolved_ticks_per_cm))
 
 
+def row_marker_id(row: int) -> int:
+    if row not in ROW_MARKER_IDS:
+        raise ValueError("row must be between 1 and 3")
+    return ROW_MARKER_IDS[row]
+
+
+def _marker_step(action: str, label: str, marker_id: int, **extra) -> dict:
+    step = {
+        "action": action,
+        "target_aruco_id": marker_id,
+        "target_ticks": 0,
+        "target_seconds": 0.0,
+        "label": label,
+    }
+    step.update(extra)
+    return step
+
+
 def _timed_step(
     action: str,
     label: str,
@@ -193,19 +231,22 @@ def build_grid_route(
     calibration: EncoderCalibration,
     turn_source: str = "encoder",
     linear_source: str = "encoder",
+    vision_source: str = "aruco",
 ) -> dict:
-    """Build a no-marker route from Dock to a box and back to Dock.
+    """Build a Dock-to-box route and blind encoder reverse return.
 
-    ``turn_source`` controls turns only. Straight segments use encoders by
-    default. Timed straight driving must be selected explicitly with
-    ``linear_source='timed'`` so enabling IMU turns cannot silently bypass
-    encoder odometry.
+    When ``vision_source='aruco'`` the outbound path uses hallway marker 0 and
+    row markers 1/2/3 from ``aruco_codes/generate_markers.py``. Return remains
+    encoder-only reverse. Select ``vision_source='encoder'`` for legacy routes.
     """
     box_id = normalize_box_id(box_id)
 
     if linear_source not in {"encoder", "timed"}:
         raise ValueError("linear_source must be 'encoder' or 'timed'")
+    if vision_source not in {"encoder", "aruco"}:
+        raise ValueError("vision_source must be 'encoder' or 'aruco'")
     timed_mode = linear_source == "timed"
+    aruco_mode = vision_source == "aruco" and not timed_mode
 
     if timed_mode:
         if geometry.forward_speed_cms is None:
@@ -251,21 +292,54 @@ def build_grid_route(
         approach_ticks = calibration.distance_ticks(
             float(geometry.box_approach_distance_cm)
         )
-        outbound = [
-            {"action": "FORWARD", "target_ticks": aisle_ticks, "target_seconds": 0.0, "label": f"Dock to row {row}"},
-            {
-                "action": outward_turn,
-                "target_ticks": int(calibration.turn_90_ticks or 0),
-                "target_seconds": 0.0,
-                "label": f"Face box {box_id}",
-            },
-            {
-                "action": "FORWARD",
-                "target_ticks": approach_ticks,
-                "target_seconds": 0.0,
-                "label": f"Approach box {box_id}",
-            },
-        ]
+        turn_step = {
+            "action": outward_turn,
+            "target_ticks": int(calibration.turn_90_ticks or 0),
+            "target_seconds": 0.0,
+            "label": f"Face box {box_id}",
+        }
+        if aruco_mode:
+            row_marker = row_marker_id(row)
+            outbound = [
+                _marker_step(
+                    "ARUCO_ALIGN",
+                    "Align on hallway marker",
+                    HALLWAY_MARKER_ID,
+                ),
+                _marker_step(
+                    "ARUCO_GUIDED_FORWARD",
+                    f"Drive to row {row} along hallway",
+                    HALLWAY_MARKER_ID,
+                    target_ticks=aisle_ticks,
+                ),
+                turn_step,
+                _marker_step(
+                    "ARUCO_ALIGN",
+                    f"Align on row {row} marker",
+                    row_marker,
+                ),
+                _marker_step(
+                    "ARUCO_APPROACH",
+                    f"Approach shelf at {box_id}",
+                    row_marker,
+                ),
+            ]
+        else:
+            outbound = [
+                {
+                    "action": "FORWARD",
+                    "target_ticks": aisle_ticks,
+                    "target_seconds": 0.0,
+                    "label": f"Dock to row {row}",
+                },
+                turn_step,
+                {
+                    "action": "FORWARD",
+                    "target_ticks": approach_ticks,
+                    "target_seconds": 0.0,
+                    "label": f"Approach box {box_id}",
+                },
+            ]
         return_route = [
             {
                 "action": "BACKWARD",

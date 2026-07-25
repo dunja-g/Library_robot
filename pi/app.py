@@ -31,7 +31,7 @@ try:
         search_books,
     )
     from .encoder_navigation import GridController
-    from .grid_layout import EncoderCalibration, GridGeometry, build_grid_route
+    from .grid_layout import EncoderCalibration, GridGeometry, GRID_MARKERS, build_grid_route
     from .qr_scanner import QRScanner
 except ImportError:  # Supports ``python pi/app.py``.
     from borrowing_mission import BorrowingMission, BorrowingState
@@ -46,7 +46,7 @@ except ImportError:  # Supports ``python pi/app.py``.
     )
     from book_db import find_book, get_all_books, get_book, search_books
     from encoder_navigation import GridController
-    from grid_layout import EncoderCalibration, GridGeometry, build_grid_route
+    from grid_layout import EncoderCalibration, GridGeometry, GRID_MARKERS, build_grid_route
     from qr_scanner import QRScanner
 
 
@@ -80,6 +80,13 @@ GRID_LINEAR_SOURCE = os.getenv(
 if GRID_LINEAR_SOURCE not in {"encoder", "timed"}:
     raise ValueError(
         "LIBRARY_ROBOT_GRID_LINEAR_SOURCE must be 'encoder' or 'timed'"
+    )
+GRID_VISION_SOURCE = os.getenv(
+    "LIBRARY_ROBOT_GRID_VISION_SOURCE", "aruco"
+).strip().lower()
+if GRID_VISION_SOURCE not in {"encoder", "aruco"}:
+    raise ValueError(
+        "LIBRARY_ROBOT_GRID_VISION_SOURCE must be 'encoder' or 'aruco'"
     )
 _auto_return_raw = os.getenv("LIBRARY_ROBOT_AUTO_RETURN", "true").strip().lower()
 if _auto_return_raw not in {"1", "true", "yes", "on", "0", "false", "no", "off"}:
@@ -266,7 +273,7 @@ if USE_MOCK:
                 )
                 cv2.putText(
                     frame,
-                    "[MOCK - NO MARKER SCANNING]",
+                    "[MOCK - ARUCO HYBRID NAV]",
                     (20, 460),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.6,
@@ -283,10 +290,22 @@ if USE_MOCK:
 
     if grid_geometry.missing_fields:
         grid_geometry = GridGeometry(80, 75, 35)
+    mock_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+
+    class MockArucoDetector:
+        def detect_target(self, frame, target_id):
+            return {"id": target_id, "center_x": 320, "center_y": 240, "area": 100000}
+
     controller = GridController(
         MockEncoderSerial(),
         destination_dwell_seconds=0.3,
         turn_source=GRID_TURN_SOURCE,
+        frame_provider=lambda: mock_frame,
+        aruco_detector=MockArucoDetector(),
+        align_tolerance_px=30,
+        alignment_confirmation_frames=1,
+        aruco_target_area_px=8000.0,
+        aruco_scan_timeout_seconds=5.0,
     )
     
     # Mock clock to advance rapidly so timed steps finish instantly in tests
@@ -298,13 +317,6 @@ if USE_MOCK:
             return self.time
     controller._clock = MockClock()
 
-    
-    class MockArucoDetector:
-        def detect_target(self, frame, target_id):
-            # Always return a massive area so the ArUco approach instantly completes
-            return {"center_x": 320, "area": 100000}
-            
-    controller.aruco_detector = MockArucoDetector()
     camera = MockCamera()
     config = None
 else:
@@ -312,10 +324,12 @@ else:
         from .camera import Camera
         from .navigation_config import NavigationConfig
         from .serial_bridge import SerialBridge
+        from .aruco_detector import ArucoDetector
     except ImportError:
         from camera import Camera
         from navigation_config import NavigationConfig
         from serial_bridge import SerialBridge
+        from aruco_detector import ArucoDetector
 
     config = NavigationConfig.from_env()
     serial_bridge = SerialBridge(
@@ -324,9 +338,11 @@ else:
     
     # Configure motor drift compensation if provided
     trim = os.getenv("LIBRARY_ROBOT_LEFT_SPEED_REDUCTION")
+    base_trim = 15
     if trim is not None:
         try:
-            serial_bridge.set_trim(int(trim))
+            base_trim = int(trim)
+            serial_bridge.set_trim(base_trim)
         except ValueError:
             logger.error("LIBRARY_ROBOT_LEFT_SPEED_REDUCTION must be an integer")
     if WHEEL_TRACK_CM is not None:
@@ -345,6 +361,9 @@ else:
         height=config.camera_height,
         fps=config.camera_fps,
     )
+    aruco_detector = None
+    if GRID_VISION_SOURCE == "aruco":
+        aruco_detector = ArucoDetector(min_area_px=config.min_marker_area_px)
     controller = GridController(
         serial_bridge,
         obstacle_distance_cm=config.obstacle_distance_cm,
@@ -353,6 +372,14 @@ else:
             os.getenv("LIBRARY_ROBOT_ENCODER_STALL_SECONDS", "2")
         ),
         turn_source=GRID_TURN_SOURCE,
+        frame_provider=camera.get_frame if GRID_VISION_SOURCE == "aruco" else None,
+        aruco_detector=aruco_detector,
+        align_tolerance_px=config.align_tolerance_px,
+        alignment_confirmation_frames=config.alignment_confirmation_frames,
+        target_loss_tolerance_frames=config.target_loss_tolerance_frames,
+        aruco_target_area_px=config.aruco_target_area_px,
+        aruco_scan_timeout_seconds=config.scan_timeout_seconds,
+        base_trim=base_trim,
     )
 
     qr_scanner = QRScanner(
@@ -504,10 +531,15 @@ def navigation_mode():
         {
             "mode": "grid",
             "label": "Fixed Grid - Encoder + IMU",
-            "marker_scanning": False,
+            "marker_scanning": GRID_VISION_SOURCE == "aruco",
             "grid_configured": not missing,
             "missing": missing,
             "use_mock": USE_MOCK,
+            "vision_source": GRID_VISION_SOURCE,
+            "grid_markers": {
+                str(marker_id): label
+                for marker_id, label in GRID_MARKERS.items()
+            },
             "grid_geometry_cm": {
                 "first_row": grid_geometry.first_row_distance_cm,
                 "row_spacing": grid_geometry.row_spacing_cm,
@@ -549,6 +581,7 @@ def _build_borrowing_plan(book: dict) -> dict:
         encoder_calibration,
         turn_source=GRID_TURN_SOURCE,
         linear_source=GRID_LINEAR_SOURCE,
+        vision_source=GRID_VISION_SOURCE,
     )
     plan.update(
         book=book["title"],

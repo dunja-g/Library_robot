@@ -42,6 +42,7 @@ class NavigationConfig:
     alignment_confirmation_frames: int = 2
     target_loss_tolerance_frames: int = 3
     min_marker_area_px: float = 0.0
+    aruco_target_area_px: float = 8000.0
     turn_90_seconds: float = 0.8
     uturn_seconds: float = 1.6
     destination_dwell_seconds: float = 5.0
@@ -70,6 +71,8 @@ class NavigationConfig:
             raise ValueError("target_loss_tolerance_frames must be non-negative")
         if self.min_marker_area_px < 0:
             raise ValueError("min_marker_area_px must be non-negative")
+        if self.aruco_target_area_px <= 0:
+            raise ValueError("aruco_target_area_px must be positive")
         if self.destination_dwell_seconds < 0:
             raise ValueError("destination_dwell_seconds must be non-negative")
 
@@ -104,6 +107,9 @@ class NavigationConfig:
             ),
             min_marker_area_px=_env_number(
                 "LIBRARY_ROBOT_MIN_MARKER_AREA_PX", 0.0, float
+            ),
+            aruco_target_area_px=_env_number(
+                "LIBRARY_ROBOT_ARUCO_TARGET_AREA_PX", 8000.0, float
             ),
             turn_90_seconds=_env_number(
                 "LIBRARY_ROBOT_TURN_90_SECONDS", 0.8, float

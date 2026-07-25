@@ -1,6 +1,8 @@
 import importlib
 import json
 
+from pi.encoder_navigation import GridState
+
 
 def load_mock_app(monkeypatch, tmp_path):
     monkeypatch.setenv("LIBRARY_ROBOT_USE_MOCK", "true")
@@ -40,10 +42,12 @@ def check_in(client):
 
 
 def test_app_is_fixed_grid_only_and_lists_numbered_books(monkeypatch, tmp_path):
+    monkeypatch.setenv("LIBRARY_ROBOT_GRID_VISION_SOURCE", "aruco")
     _module, client = load_mock_app(monkeypatch, tmp_path)
     mode = client.get("/navigation_mode").get_json()
     assert mode["mode"] == "grid"
-    assert mode["marker_scanning"] is False
+    assert mode["marker_scanning"] is True
+    assert mode["vision_source"] == "aruco"
     assert mode["linear_source"] == "encoder"
     assert mode["turn_source"] == "imu"
     assert mode["return_strategy"] == "direct_reverse"
@@ -107,7 +111,8 @@ def test_search_by_title_book_id_location_and_partial_text(monkeypatch, tmp_path
         assert results[0]["tags"] == ["AI", "Machine Learning", "Neural Networks"]
 
 
-def test_book_number_dispatches_without_marker_scan(monkeypatch, tmp_path):
+def test_book_number_dispatches_with_aruco_hybrid_route(monkeypatch, tmp_path):
+    monkeypatch.setenv("LIBRARY_ROBOT_GRID_VISION_SOURCE", "aruco")
     module, client = load_mock_app(monkeypatch, tmp_path)
     check_in(client)
     response = client.post("/request_book", json={"query": "BK001"})
@@ -117,12 +122,17 @@ def test_book_number_dispatches_without_marker_scan(monkeypatch, tmp_path):
     assert payload["mission"]["state"] == "pending"
 
     status = client.get("/status").get_json()
-    assert status["state"] == "MOVING"
+    assert status["state"] in {"MOVING", "TURNING"}
     assert status["book"] == "Deep Learning"
-    assert status["current_action"] == "FORWARD"
+    assert status["current_action"] in {
+        "ARUCO_ALIGN",
+        "ARUCO_GUIDED_FORWARD",
+        "ARUCO_APPROACH",
+        "TURN_LEFT",
+    }
     assert "current_marker_id" not in status
 
-    for _ in range(10):
+    for _ in range(30):
         module.controller.step()
         if module.controller.get_state() == "ARRIVED":
             break
@@ -255,12 +265,19 @@ def test_obstacle_stop_cancels_pending_without_database_write(
 def test_encoder_stall_cancels_pending_without_database_write(
     monkeypatch, tmp_path
 ):
+    monkeypatch.setenv("LIBRARY_ROBOT_GRID_VISION_SOURCE", "encoder")
     module, client = load_mock_app(monkeypatch, tmp_path)
     start_pending_mission(module, client)
     module.controller.serial.get_encoders = lambda: {"left": 0, "right": 0}
     module.controller._last_progress_at = module.controller._clock() - 3
 
-    module.controller._current_step = lambda: {"action": "FORWARD", "target_ticks": 1000, "target_seconds": 0.0, "label": "Mock Encoder Step"}
+    module.controller._current_step = lambda: {
+        "action": "FORWARD",
+        "target_ticks": 1000,
+        "target_seconds": 0.0,
+        "label": "Mock Encoder Step",
+    }
+    module.controller.state = GridState.MOVING
     module.controller.step()
     module._reconcile_borrowing_state()
 
@@ -296,6 +313,7 @@ def test_reset_and_timeout_cancel_pending_operation(monkeypatch, tmp_path):
 
 
 def test_serial_and_imu_failures_cancel_pending_operation(monkeypatch, tmp_path):
+    monkeypatch.setenv("LIBRARY_ROBOT_GRID_VISION_SOURCE", "encoder")
     module, client = load_mock_app(monkeypatch, tmp_path)
     check_in(client)
     module.controller.serial.send_forward = lambda: False
