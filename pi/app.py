@@ -393,6 +393,8 @@ else:
             enhance_vision=config.aruco_enhance_vision,
             clahe_clip_limit=config.aruco_clahe_clip_limit,
             clahe_tile_grid=config.aruco_clahe_tile_grid,
+            upscale_factor=config.aruco_upscale_factor,
+            candidate_min_area_px=config.aruco_candidate_min_area_px,
         )
     approach_extra_ticks, approach_extra_seconds = _resolve_aruco_approach_creep(
         config.aruco_approach_extra_cm
@@ -418,6 +420,8 @@ else:
         aruco_align_fine_settle_seconds=config.aruco_align_fine_settle_seconds,
         aruco_align_max_search_pulses=config.aruco_align_max_search_pulses,
         aruco_align_max_reacquire_pulses=config.aruco_align_max_reacquire_pulses,
+        aruco_align_invert_turn=config.aruco_align_invert_turn,
+        aruco_track_candidates=config.aruco_track_candidates,
         aruco_approach_extra_ticks=approach_extra_ticks,
         aruco_approach_extra_seconds=approach_extra_seconds,
         return_obstacle_distance_cm=config.return_obstacle_distance_cm,

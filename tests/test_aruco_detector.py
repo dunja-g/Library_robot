@@ -59,6 +59,42 @@ def test_draw_returns_annotated_copy():
     assert not np.array_equal(annotated, original)
 
 
+def test_candidates_locate_a_quad_that_cannot_be_decoded():
+    detector = ArucoDetector()
+    frame = np.full((480, 640, 3), 255, dtype=np.uint8)
+    cv2.rectangle(frame, (400, 200), (520, 320), (0, 0, 0), -1)
+    cv2.rectangle(frame, (425, 225), (495, 295), (255, 255, 255), -1)
+
+    assert detector.detect(frame) == []
+
+    candidates = detector.detect_candidates(frame)
+    assert candidates
+    best = max(candidates, key=lambda item: item["area"])
+    assert abs(best["center_x"] - 460) <= 10
+    assert abs(best["center_y"] - 260) <= 10
+
+
+def test_candidate_area_filter_drops_specks():
+    frame = np.full((480, 640, 3), 255, dtype=np.uint8)
+    cv2.rectangle(frame, (400, 200), (520, 320), (0, 0, 0), -1)
+    cv2.rectangle(frame, (425, 225), (495, 295), (255, 255, 255), -1)
+
+    assert ArucoDetector(candidate_min_area_px=1_000_000).detect_candidates(frame) == []
+
+
+def test_upscale_pass_recovers_a_small_distant_marker():
+    marker = as_bgr(create_marker(1, image_size=36, border_px=2))
+    frame = np.full((480, 640, 3), 255, dtype=np.uint8)
+    frame[220:256, 300:336] = marker
+    blurred = cv2.GaussianBlur(frame, (3, 3), 1.1)
+
+    plain = ArucoDetector(enhance_vision=False)
+    upscaled = ArucoDetector(enhance_vision=True, upscale_factor=3.0)
+
+    if plain.detect_target(blurred, 1) is None:
+        assert upscaled.detect_target(blurred, 1) is not None
+
+
 def test_enhancement_finds_washed_out_marker():
     plain = ArucoDetector(enhance_vision=False)
     enhanced = ArucoDetector(enhance_vision=True)

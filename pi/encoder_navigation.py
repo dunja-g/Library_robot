@@ -44,6 +44,8 @@ class GridController:
         aruco_align_fine_settle_seconds: float = 0.4,
         aruco_align_max_search_pulses: int = 6,
         aruco_align_max_reacquire_pulses: int = 2,
+        aruco_align_invert_turn: bool = False,
+        aruco_track_candidates: bool = True,
         return_obstacle_distance_cm: float = 10.0,
         aruco_approach_extra_ticks: float = 0.0,
         aruco_approach_extra_seconds: float = 0.0,
@@ -104,6 +106,8 @@ class GridController:
         self.aruco_align_fine_settle_seconds = float(aruco_align_fine_settle_seconds)
         self.aruco_align_max_search_pulses = int(aruco_align_max_search_pulses)
         self.aruco_align_max_reacquire_pulses = int(aruco_align_max_reacquire_pulses)
+        self.aruco_align_invert_turn = bool(aruco_align_invert_turn)
+        self.aruco_track_candidates = bool(aruco_track_candidates)
         self.aruco_approach_extra_ticks = float(aruco_approach_extra_ticks)
         self.aruco_approach_extra_seconds = float(aruco_approach_extra_seconds)
         self.return_obstacle_distance_cm = float(return_obstacle_distance_cm)
@@ -620,7 +624,12 @@ class GridController:
         return direction
 
     def _start_align_pulse(self, direction: str, *, fine: bool = False) -> None:
-        direction = self._physical_turn_direction(direction)
+        # Vision alignment is a closed loop: the camera sees the result of the
+        # last pulse, so it must not reuse the open-loop route-turn inversion.
+        if self.aruco_align_invert_turn:
+            direction = self._physical_turn_direction(direction)
+        elif direction not in {"left", "right"}:
+            raise ValueError("direction must be 'left' or 'right'")
         duration = (
             self.aruco_align_fine_pulse_seconds
             if fine
@@ -662,6 +671,27 @@ class GridController:
         self._align_search_total = 0
         self._align_reacquire_pulses = 0
 
+    def _candidate_error_x(self, frame: Any | None) -> float | None:
+        """Offset of the largest marker-shaped quad whose ID would not decode.
+
+        Returns ``None`` when nothing usable is visible or the quad is already
+        centred, so the caller falls through to the bounded search sweep.
+        """
+        if not self.aruco_track_candidates or frame is None:
+            return None
+        detect_candidates = getattr(self.aruco_detector, "detect_candidates", None)
+        if not callable(detect_candidates):
+            return None
+        try:
+            candidates = detect_candidates(frame)
+        except Exception:
+            return None
+        if not candidates:
+            return None
+        best = max(candidates, key=lambda item: float(item["area"]))
+        error = self._marker_error_x(frame, best)
+        return error if abs(error) > self.align_tolerance_px else None
+
     def _bias_search_direction(self, frame: Any | None, target_id: int) -> None:
         """Aim the first sweep leg at wherever a marker was last seen."""
         if self._align_search_total > 0:
@@ -674,6 +704,11 @@ class GridController:
             self._align_search_direction = (
                 "left" if self._align_last_error_x < 0 else "right"
             )
+            return
+
+        candidate_error = self._candidate_error_x(frame)
+        if candidate_error is not None:
+            self._align_search_direction = "left" if candidate_error < 0 else "right"
             return
 
         if frame is None or self.aruco_detector is None:
@@ -800,8 +835,13 @@ class GridController:
                 if short_settle and self._can_reacquire():
                     self._align_reacquire_pulses += 1
                     self._turn_toward_error(self._align_last_error_x, fine=True)
-                else:
-                    self._begin_align_search_pulse(frame, target_id)
+                    return
+                candidate_error = self._candidate_error_x(frame)
+                if candidate_error is not None:
+                    self._align_last_error_x = candidate_error
+                    self._turn_toward_error(candidate_error, fine=True)
+                    return
+                self._begin_align_search_pulse(frame, target_id)
                 return
             self._handle_align_detection(frame, detection, on_centered=on_centered)
             return

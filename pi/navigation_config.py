@@ -52,6 +52,10 @@ class NavigationConfig:
     aruco_align_fine_settle_seconds: float = 0.4
     aruco_align_max_search_pulses: int = 6
     aruco_align_max_reacquire_pulses: int = 2
+    aruco_align_invert_turn: bool = False
+    aruco_track_candidates: bool = True
+    aruco_upscale_factor: float = 2.0
+    aruco_candidate_min_area_px: float = 900.0
     aruco_approach_extra_cm: float = 8.0
     return_obstacle_distance_cm: float = 10.0
     invert_turn_direction: bool = True
@@ -107,6 +111,10 @@ class NavigationConfig:
             raise ValueError(
                 "aruco_align_max_reacquire_pulses must be non-negative"
             )
+        if self.aruco_upscale_factor < 1.0:
+            raise ValueError("aruco_upscale_factor must be at least 1.0")
+        if self.aruco_candidate_min_area_px < 0:
+            raise ValueError("aruco_candidate_min_area_px must be non-negative")
         if self.aruco_approach_extra_cm < 0:
             raise ValueError("aruco_approach_extra_cm must be non-negative")
         if self.return_obstacle_distance_cm <= 0:
@@ -181,6 +189,18 @@ class NavigationConfig:
             ),
             aruco_align_max_reacquire_pulses=_env_number(
                 "LIBRARY_ROBOT_ARUCO_ALIGN_MAX_REACQUIRE_PULSES", 2, int
+            ),
+            aruco_align_invert_turn=_env_bool(
+                "LIBRARY_ROBOT_ARUCO_ALIGN_INVERT_TURN", False
+            ),
+            aruco_track_candidates=_env_bool(
+                "LIBRARY_ROBOT_ARUCO_TRACK_CANDIDATES", True
+            ),
+            aruco_upscale_factor=_env_number(
+                "LIBRARY_ROBOT_ARUCO_UPSCALE_FACTOR", 2.0, float
+            ),
+            aruco_candidate_min_area_px=_env_number(
+                "LIBRARY_ROBOT_ARUCO_CANDIDATE_MIN_AREA_PX", 900.0, float
             ),
             aruco_approach_extra_cm=_env_number(
                 "LIBRARY_ROBOT_ARUCO_APPROACH_EXTRA_CM", 8.0, float

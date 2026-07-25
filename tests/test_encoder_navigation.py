@@ -381,6 +381,100 @@ def test_aruco_align_fine_pulses_when_marker_is_off_center():
     assert controller._align_pulse_deadline is not None
 
 
+def test_aruco_align_turns_toward_marker_despite_route_turn_inversion():
+    serial, clock = FakeSerial(), FakeClock()
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+
+    controller = GridController(
+        serial,
+        clock=clock,
+        frame_provider=lambda: frame,
+        aruco_detector=OffCenterArucoDetector(),
+        alignment_confirmation_frames=1,
+        invert_turn_direction=True,
+    )
+    plan = build_grid_route(
+        "1A",
+        GridGeometry(10, 10, 5),
+        EncoderCalibration(1, 4, 8),
+        turn_source="imu",
+    )
+    controller.request_grid_mission(plan)
+
+    finish_align_settle(controller, clock)
+    controller.step()
+
+    # Marker sits right of centre, so the robot must physically turn right
+    # even though route turns are inverted for this chassis.
+    assert serial.commands[-1] == "ROTATE_RIGHT"
+
+
+class UndecodableCandidateDetector:
+    """Never decodes an ID but always reports a quad right of centre."""
+
+    def detect_target(self, frame, target_id):
+        return None
+
+    def detect(self, frame):
+        return []
+
+    def detect_candidates(self, frame):
+        return [{"center_x": 520, "center_y": 240, "area": 12000}]
+
+
+def test_aruco_align_steers_toward_an_undecodable_code():
+    serial, clock = FakeSerial(), FakeClock()
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+
+    controller = GridController(
+        serial,
+        clock=clock,
+        frame_provider=lambda: frame,
+        aruco_detector=UndecodableCandidateDetector(),
+        alignment_confirmation_frames=1,
+        invert_turn_direction=False,
+    )
+    plan = build_grid_route(
+        "1A",
+        GridGeometry(10, 10, 5),
+        EncoderCalibration(1, 4, 8),
+        turn_source="imu",
+    )
+    controller.request_grid_mission(plan)
+
+    finish_align_settle(controller, clock)
+
+    assert serial.commands[-1] == "ROTATE_RIGHT"
+    assert controller._align_pulse_deadline is not None
+    assert controller._align_search_total == 0
+
+
+def test_candidate_tracking_can_be_disabled():
+    serial, clock = FakeSerial(), FakeClock()
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+
+    controller = GridController(
+        serial,
+        clock=clock,
+        frame_provider=lambda: frame,
+        aruco_detector=UndecodableCandidateDetector(),
+        alignment_confirmation_frames=1,
+        aruco_track_candidates=False,
+        invert_turn_direction=False,
+    )
+    plan = build_grid_route(
+        "1A",
+        GridGeometry(10, 10, 5),
+        EncoderCalibration(1, 4, 8),
+        turn_source="imu",
+    )
+    controller.request_grid_mission(plan)
+
+    finish_align_settle(controller, clock)
+
+    assert controller._align_search_total == 1
+
+
 def test_aruco_align_search_alternates_when_marker_stays_missing():
     serial, clock = FakeSerial(), FakeClock()
     frame = np.zeros((480, 640, 3), dtype=np.uint8)
