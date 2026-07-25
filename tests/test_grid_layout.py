@@ -39,13 +39,12 @@ def test_aruco_hybrid_route_uses_hallway_and_row_markers():
 
     assert [step["action"] for step in route["outbound"]] == [
         "ARUCO_ALIGN",
-        "ARUCO_GUIDED_FORWARD",
+        "FORWARD",
         "TURN_RIGHT",
         "ARUCO_ALIGN",
         "ARUCO_APPROACH",
     ]
     assert route["outbound"][0]["target_aruco_id"] == 0
-    assert route["outbound"][1]["target_aruco_id"] == 0
     assert route["outbound"][1]["target_ticks"] == 2300
     assert route["outbound"][3]["target_aruco_id"] == 3
     assert route["outbound"][4]["target_aruco_id"] == 3
@@ -123,6 +122,7 @@ def test_timed_linear_mode_requires_explicit_selection():
         EncoderCalibration(),
         turn_source="imu",
         linear_source="timed",
+        vision_source="encoder",
     )
 
     assert route["outbound"][0]["target_ticks"] == 0
