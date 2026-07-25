@@ -307,6 +307,8 @@ if USE_MOCK:
         aruco_target_area_px=8000.0,
         aruco_scan_timeout_seconds=5.0,
         aruco_align_pulse_seconds=0.2,
+        aruco_align_settle_seconds=2.0,
+        aruco_align_fine_pulse_seconds=0.12,
     )
     
     # Mock clock to advance rapidly so timed steps finish instantly in tests
@@ -381,6 +383,8 @@ else:
         aruco_target_area_px=config.aruco_target_area_px,
         aruco_scan_timeout_seconds=config.scan_timeout_seconds,
         aruco_align_pulse_seconds=config.aruco_align_pulse_seconds,
+        aruco_align_settle_seconds=config.aruco_align_settle_seconds,
+        aruco_align_fine_pulse_seconds=config.aruco_align_fine_pulse_seconds,
         base_trim=base_trim,
     )
 

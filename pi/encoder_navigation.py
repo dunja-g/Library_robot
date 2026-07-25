@@ -39,6 +39,8 @@ class GridController:
         aruco_target_area_px: float = 8000.0,
         aruco_scan_timeout_seconds: float = 60.0,
         aruco_align_pulse_seconds: float = 0.2,
+        aruco_align_settle_seconds: float = 2.0,
+        aruco_align_fine_pulse_seconds: float = 0.12,
         base_trim: int = 15,
         aruco_steering_kp: float = -0.15,
         clock=time.monotonic,
@@ -61,6 +63,10 @@ class GridController:
             raise ValueError("aruco_scan_timeout_seconds must be positive")
         if aruco_align_pulse_seconds <= 0:
             raise ValueError("aruco_align_pulse_seconds must be positive")
+        if aruco_align_settle_seconds <= 0:
+            raise ValueError("aruco_align_settle_seconds must be positive")
+        if aruco_align_fine_pulse_seconds <= 0:
+            raise ValueError("aruco_align_fine_pulse_seconds must be positive")
         self.serial = serial_bridge
         self.obstacle_distance_cm = float(obstacle_distance_cm)
         self.destination_dwell_seconds = float(destination_dwell_seconds)
@@ -74,6 +80,8 @@ class GridController:
         self.aruco_target_area_px = float(aruco_target_area_px)
         self.aruco_scan_timeout_seconds = float(aruco_scan_timeout_seconds)
         self.aruco_align_pulse_seconds = float(aruco_align_pulse_seconds)
+        self.aruco_align_settle_seconds = float(aruco_align_settle_seconds)
+        self.aruco_align_fine_pulse_seconds = float(aruco_align_fine_pulse_seconds)
         self.base_trim = int(base_trim)
         self.aruco_steering_kp = float(aruco_steering_kp)
         self._clock = clock
@@ -96,6 +104,8 @@ class GridController:
         self._target_missing_frames = 0
         self._current_trim = self.base_trim
         self._align_pulse_deadline: float | None = None
+        self._align_settle_until: float | None = None
+        self._align_pulse_is_fine: bool = False
 
     def request_grid_mission(self, plan: dict) -> None:
         if not plan.get("outbound") or not plan.get("return"):
@@ -255,6 +265,8 @@ class GridController:
             self._target_missing_frames = 0
             self._current_trim = self.base_trim
             self._align_pulse_deadline = None
+            self._align_settle_until = None
+            self._align_pulse_is_fine = False
 
     def confirm_pickup(self) -> None:
         """Start the return route after the user confirms taking the book."""
@@ -367,6 +379,8 @@ class GridController:
         action = step["action"]
         if action == "ARUCO_ALIGN":
             self._align_pulse_deadline = None
+            self._align_settle_until = None
+            self._align_pulse_is_fine = False
             self._step_deadline = self._clock() + self.aruco_scan_timeout_seconds
             self.state = GridState.TURNING
             return
@@ -560,41 +574,33 @@ class GridController:
         else:
             self._start_current_step()
 
-    def _start_align_pulse(self, direction: str) -> None:
-        self._align_pulse_deadline = self._clock() + self.aruco_align_pulse_seconds
+    def _start_align_pulse(self, direction: str, *, fine: bool = False) -> None:
+        duration = (
+            self.aruco_align_fine_pulse_seconds
+            if fine
+            else self.aruco_align_pulse_seconds
+        )
+        self._align_pulse_is_fine = fine
+        self._align_settle_until = None
+        self._align_pulse_deadline = self._clock() + duration
         self.state = GridState.TURNING
         if direction == "left":
             self.serial.send_rotate_left()
         else:
             self.serial.send_rotate_right()
 
-    def _step_aruco_align(self) -> None:
-        """Pulse-rotate, stop, then detect the target marker before correcting."""
-        step = self._current_step()
-        target_id = int(step["target_aruco_id"])
+    def _begin_align_settle(self) -> None:
+        """Hold still so the camera can capture a stable frame after a missed detect."""
+        self.serial.send_stop()
+        self._align_pulse_deadline = None
+        self._align_pulse_is_fine = False
+        self._align_settle_until = self._clock() + self.aruco_align_settle_seconds
+        self.state = GridState.TURNING
 
-        if self._step_deadline and self._clock() > self._step_deadline:
-            self.serial.send_stop()
-            self._align_pulse_deadline = None
-            self._safe_stop("aruco_scan_timeout")
-            return
-
-        if self._align_pulse_deadline is not None:
-            if self._clock() < self._align_pulse_deadline:
-                return
-            self.serial.send_stop()
-            self._align_pulse_deadline = None
-
-        frame, detection = self._read_frame_and_detection(target_id)
-        if frame is None and self.stop_reason:
-            return
-        if frame is None:
-            return
-
+    def _handle_align_detection(self, frame: Any, detection: dict | None) -> None:
         if detection is None:
-            self._target_missing_frames += 1
             self._aligned_frames = 0
-            self._start_align_pulse("left")
+            self._begin_align_settle()
             return
 
         self._target_missing_frames = 0
@@ -608,7 +614,63 @@ class GridController:
             return
 
         self._aligned_frames = 0
-        self._start_align_pulse("left" if error < 0 else "right")
+        self._start_align_pulse("left" if error < 0 else "right", fine=True)
+
+    def _step_aruco_align(self) -> None:
+        """Pulse-rotate, stop, settle on miss, then search and fine-tune to centre."""
+        step = self._current_step()
+        target_id = int(step["target_aruco_id"])
+
+        if self._step_deadline and self._clock() > self._step_deadline:
+            self.serial.send_stop()
+            self._align_pulse_deadline = None
+            self._align_settle_until = None
+            self._align_pulse_is_fine = False
+            self._safe_stop("aruco_scan_timeout")
+            return
+
+        if self._align_settle_until is not None:
+            self.serial.send_stop()
+            if self._clock() < self._align_settle_until:
+                return
+            self._align_settle_until = None
+            frame, detection = self._read_frame_and_detection(target_id)
+            if frame is None and self.stop_reason:
+                return
+            if frame is None:
+                return
+            if detection is None:
+                self._aligned_frames = 0
+                self._start_align_pulse("left", fine=False)
+                return
+            self._handle_align_detection(frame, detection)
+            return
+
+        if self._align_pulse_deadline is not None:
+            if self._clock() < self._align_pulse_deadline:
+                return
+            self.serial.send_stop()
+            self._align_pulse_deadline = None
+            self._align_pulse_is_fine = False
+            frame, detection = self._read_frame_and_detection(target_id)
+            if frame is None and self.stop_reason:
+                return
+            if frame is None:
+                return
+            self._handle_align_detection(frame, detection)
+            return
+
+        frame, detection = self._read_frame_and_detection(target_id)
+        if frame is None and self.stop_reason:
+            return
+        if frame is None:
+            return
+        if detection is None:
+            self._target_missing_frames += 1
+            self._aligned_frames = 0
+            self._start_align_pulse("left", fine=False)
+            return
+        self._handle_align_detection(frame, detection)
 
     def _step_aruco_guided_forward(self) -> None:
         """Drive forward for a fixed encoder distance while tracking a marker."""

@@ -255,6 +255,11 @@ def finish_align_pulse(controller, clock):
     controller.step()
 
 
+def finish_align_settle(controller, clock):
+    clock.now += controller.aruco_align_settle_seconds + 0.01
+    controller.step()
+
+
 class CenteredArucoDetector:
     def detect_target(self, frame, target_id):
         return {
@@ -296,8 +301,51 @@ def test_aruco_align_uses_pulse_rotation_before_detection():
 
     finish_align_pulse(controller, clock)
     assert "STOP" in serial.commands
-    assert serial.commands[-1] == "ROTATE_LEFT"
+    assert serial.commands[-1] == "STOP"
+    assert controller._align_settle_until is not None
     assert controller.get_status()["current_action"] == "ARUCO_ALIGN"
+
+    controller.step()
+    assert serial.commands[-1] == "STOP"
+
+    finish_align_settle(controller, clock)
+    assert serial.commands[-1] == "ROTATE_LEFT"
+
+
+class OffCenterArucoDetector:
+    def detect_target(self, frame, target_id):
+        return {
+            "id": target_id,
+            "center_x": 400,
+            "center_y": 240,
+            "area": 100000,
+        }
+
+
+def test_aruco_align_fine_pulses_when_marker_is_off_center():
+    serial, clock = FakeSerial(), FakeClock()
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+
+    controller = GridController(
+        serial,
+        clock=clock,
+        frame_provider=lambda: frame,
+        aruco_detector=OffCenterArucoDetector(),
+        alignment_confirmation_frames=1,
+        aruco_align_pulse_seconds=0.2,
+        aruco_align_fine_pulse_seconds=0.12,
+    )
+    plan = build_grid_route(
+        "1A",
+        GridGeometry(10, 10, 5),
+        EncoderCalibration(1, 4, 8),
+        turn_source="imu",
+    )
+    controller.request_grid_mission(plan)
+
+    controller.step()
+    assert serial.commands[-1] == "ROTATE_RIGHT"
+    assert controller._align_pulse_deadline is not None
 
 
 def test_aruco_align_advances_after_stop_and_detection():
@@ -321,7 +369,7 @@ def test_aruco_align_advances_after_stop_and_detection():
     controller.request_grid_mission(plan)
 
     controller.step()
-    assert controller.get_status()["current_action"] == "ARUCO_GUIDED_FORWARD"
+    assert controller.get_status()["current_action"] == "FORWARD"
 
 
 def test_aruco_hybrid_route_completes_with_mock_vision():
