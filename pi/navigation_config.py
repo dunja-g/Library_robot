@@ -42,6 +42,9 @@ class NavigationConfig:
     alignment_confirmation_frames: int = 2
     target_loss_tolerance_frames: int = 3
     min_marker_area_px: float = 0.0
+    aruco_enhance_vision: bool = True
+    aruco_clahe_clip_limit: float = 3.0
+    aruco_clahe_tile_grid: int = 8
     aruco_target_area_px: float = 8000.0
     aruco_align_pulse_seconds: float = 0.2
     aruco_align_settle_seconds: float = 2.0
@@ -77,6 +80,10 @@ class NavigationConfig:
             raise ValueError("target_loss_tolerance_frames must be non-negative")
         if self.min_marker_area_px < 0:
             raise ValueError("min_marker_area_px must be non-negative")
+        if self.aruco_clahe_clip_limit <= 0:
+            raise ValueError("aruco_clahe_clip_limit must be positive")
+        if self.aruco_clahe_tile_grid <= 0:
+            raise ValueError("aruco_clahe_tile_grid must be positive")
         if self.aruco_target_area_px <= 0:
             raise ValueError("aruco_target_area_px must be positive")
         if self.aruco_align_pulse_seconds <= 0:
@@ -123,6 +130,15 @@ class NavigationConfig:
             ),
             min_marker_area_px=_env_number(
                 "LIBRARY_ROBOT_MIN_MARKER_AREA_PX", 0.0, float
+            ),
+            aruco_enhance_vision=_env_bool(
+                "LIBRARY_ROBOT_ARUCO_ENHANCE_VISION", True
+            ),
+            aruco_clahe_clip_limit=_env_number(
+                "LIBRARY_ROBOT_ARUCO_CLAHE_CLIP_LIMIT", 3.0, float
+            ),
+            aruco_clahe_tile_grid=_env_number(
+                "LIBRARY_ROBOT_ARUCO_CLAHE_TILE_GRID", 8, int
             ),
             aruco_target_area_px=_env_number(
                 "LIBRARY_ROBOT_ARUCO_TARGET_AREA_PX", 8000.0, float

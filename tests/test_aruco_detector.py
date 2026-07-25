@@ -57,3 +57,14 @@ def test_draw_returns_annotated_copy():
 
     assert np.array_equal(frame, original)
     assert not np.array_equal(annotated, original)
+
+
+def test_enhancement_finds_washed_out_marker():
+    plain = ArucoDetector(enhance_vision=False)
+    enhanced = ArucoDetector(enhance_vision=True)
+    frame = as_bgr(create_marker(0, image_size=80, border_px=2))
+    washed = cv2.addWeighted(frame, 0.08, np.full_like(frame, 255), 0.92, 0)
+    degraded = cv2.GaussianBlur(washed, (3, 3), 2.5)
+
+    assert plain.detect_target(degraded, 0) is None
+    assert enhanced.detect_target(degraded, 0) is not None

@@ -386,7 +386,12 @@ else:
     )
     aruco_detector = None
     if GRID_VISION_SOURCE == "aruco":
-        aruco_detector = ArucoDetector(min_area_px=config.min_marker_area_px)
+        aruco_detector = ArucoDetector(
+            min_area_px=config.min_marker_area_px,
+            enhance_vision=config.aruco_enhance_vision,
+            clahe_clip_limit=config.aruco_clahe_clip_limit,
+            clahe_tile_grid=config.aruco_clahe_tile_grid,
+        )
     approach_extra_ticks, approach_extra_seconds = _resolve_aruco_approach_creep(
         config.aruco_approach_extra_cm
     )
