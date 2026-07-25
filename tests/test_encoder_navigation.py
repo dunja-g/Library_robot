@@ -250,18 +250,86 @@ def test_imu_turn_source_does_not_depend_on_four_tick_encoder_turns():
     assert controller.get_state() == GridState.MOVING.value
 
 
+def finish_align_pulse(controller, clock):
+    clock.now += controller.aruco_align_pulse_seconds + 0.01
+    controller.step()
+
+
+class CenteredArucoDetector:
+    def detect_target(self, frame, target_id):
+        return {
+            "id": target_id,
+            "center_x": 320,
+            "center_y": 240,
+            "area": 100000,
+        }
+
+
+class MissingArucoDetector:
+    def detect_target(self, frame, target_id):
+        return None
+
+
+def test_aruco_align_uses_pulse_rotation_before_detection():
+    serial, clock = FakeSerial(), FakeClock()
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+
+    controller = GridController(
+        serial,
+        clock=clock,
+        frame_provider=lambda: frame,
+        aruco_detector=MissingArucoDetector(),
+        alignment_confirmation_frames=1,
+        aruco_align_pulse_seconds=0.2,
+    )
+    plan = build_grid_route(
+        "1A",
+        GridGeometry(10, 10, 5),
+        EncoderCalibration(1, 4, 8),
+        turn_source="imu",
+    )
+    controller.request_grid_mission(plan)
+
+    controller.step()
+    assert serial.commands[-1] == "ROTATE_LEFT"
+    assert controller._align_pulse_deadline is not None
+
+    finish_align_pulse(controller, clock)
+    assert "STOP" in serial.commands
+    assert serial.commands[-1] == "ROTATE_LEFT"
+    assert controller.get_status()["current_action"] == "ARUCO_ALIGN"
+
+
+def test_aruco_align_advances_after_stop_and_detection():
+    serial, clock = FakeSerial(), FakeClock()
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+
+    controller = GridController(
+        serial,
+        clock=clock,
+        frame_provider=lambda: frame,
+        aruco_detector=CenteredArucoDetector(),
+        alignment_confirmation_frames=1,
+        aruco_align_pulse_seconds=0.2,
+    )
+    plan = build_grid_route(
+        "1A",
+        GridGeometry(10, 10, 5),
+        EncoderCalibration(1, 4, 8),
+        turn_source="imu",
+    )
+    controller.request_grid_mission(plan)
+
+    controller.step()
+    assert controller.get_status()["current_action"] == "ARUCO_GUIDED_FORWARD"
+
+
 def test_aruco_hybrid_route_completes_with_mock_vision():
     serial, clock = FakeSerial(), FakeClock()
     frame = np.zeros((480, 640, 3), dtype=np.uint8)
 
-    class FakeArucoDetector:
-        def detect_target(self, frame, target_id):
-            return {
-                "id": target_id,
-                "center_x": 320,
-                "center_y": 240,
-                "area": 100000,
-            }
+    class FakeArucoDetector(CenteredArucoDetector):
+        pass
 
     controller = GridController(
         serial,
@@ -289,6 +357,6 @@ def test_aruco_hybrid_route_completes_with_mock_vision():
     serial.turn_status = "DONE"
     controller.step()
     controller.step()
-    complete_step(controller, serial)
+    controller.step()
 
     assert controller.get_state() == GridState.ARRIVED.value
