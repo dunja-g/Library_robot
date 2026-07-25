@@ -41,6 +41,8 @@ class GridController:
         aruco_align_pulse_seconds: float = 0.2,
         aruco_align_settle_seconds: float = 2.0,
         aruco_align_fine_pulse_seconds: float = 0.12,
+        aruco_approach_extra_ticks: float = 0.0,
+        aruco_approach_extra_seconds: float = 0.0,
         base_trim: int = 15,
         aruco_steering_kp: float = -0.15,
         clock=time.monotonic,
@@ -67,6 +69,10 @@ class GridController:
             raise ValueError("aruco_align_settle_seconds must be positive")
         if aruco_align_fine_pulse_seconds <= 0:
             raise ValueError("aruco_align_fine_pulse_seconds must be positive")
+        if aruco_approach_extra_ticks < 0:
+            raise ValueError("aruco_approach_extra_ticks must be non-negative")
+        if aruco_approach_extra_seconds < 0:
+            raise ValueError("aruco_approach_extra_seconds must be non-negative")
         self.serial = serial_bridge
         self.obstacle_distance_cm = float(obstacle_distance_cm)
         self.destination_dwell_seconds = float(destination_dwell_seconds)
@@ -82,6 +88,8 @@ class GridController:
         self.aruco_align_pulse_seconds = float(aruco_align_pulse_seconds)
         self.aruco_align_settle_seconds = float(aruco_align_settle_seconds)
         self.aruco_align_fine_pulse_seconds = float(aruco_align_fine_pulse_seconds)
+        self.aruco_approach_extra_ticks = float(aruco_approach_extra_ticks)
+        self.aruco_approach_extra_seconds = float(aruco_approach_extra_seconds)
         self.base_trim = int(base_trim)
         self.aruco_steering_kp = float(aruco_steering_kp)
         self._clock = clock
@@ -374,6 +382,9 @@ class GridController:
         if step is None:
             raise RuntimeError("No grid route step is available")
         step.pop("aruco_locked", None)
+        step.pop("aruco_creep_active", None)
+        step.pop("aruco_creep_target_ticks", None)
+        step.pop("aruco_creep_deadline", None)
         self._aligned_frames = 0
         self._target_missing_frames = 0
         action = step["action"]
@@ -711,9 +722,72 @@ class GridController:
             if not self.serial.send_forward():
                 self._safe_stop("serial_command_failed")
 
+    def _begin_aruco_approach_creep(self, step: dict) -> None:
+        """Drive a little further inward after the marker fills the target area."""
+        self._reset_aruco_trim()
+        self.serial.send_stop()
+        if self.aruco_approach_extra_ticks > 0:
+            if not self.serial.reset_encoders():
+                self._safe_stop("encoder_reset_failed")
+                return
+            step["aruco_creep_active"] = True
+            step["aruco_creep_target_ticks"] = self.aruco_approach_extra_ticks
+            self._last_progress_ticks = 0.0
+            self._last_progress_at = self._clock()
+            self._latest_encoders = {"left": 0, "right": 0}
+            if not self.serial.send_forward():
+                self._safe_stop("serial_command_failed")
+            return
+        if self.aruco_approach_extra_seconds > 0:
+            step["aruco_creep_active"] = True
+            step["aruco_creep_deadline"] = (
+                self._clock() + self.aruco_approach_extra_seconds
+            )
+            if not self.serial.send_forward():
+                self._safe_stop("serial_command_failed")
+            return
+        self._advance_step()
+
+    def _step_aruco_approach_creep(self, step: dict) -> None:
+        deadline = step.get("aruco_creep_deadline")
+        if deadline is not None:
+            if self._clock() < deadline:
+                if not self.serial.send_forward():
+                    self._safe_stop("serial_command_failed")
+                return
+            self.serial.send_stop()
+            self._advance_step()
+            return
+
+        target_ticks = float(step.get("aruco_creep_target_ticks", 0.0))
+        get_odometry = getattr(self.serial, "get_odometry", None)
+        odometry = get_odometry() if callable(get_odometry) else None
+        encoders = odometry if odometry is not None else self.serial.get_encoders()
+        if not self._valid_encoders(encoders):
+            self._safe_stop("encoder_unavailable")
+            return
+        self._latest_encoders = dict(encoders)
+        if odometry is not None:
+            self._latest_odometry = dict(odometry)
+        progress = min(
+            abs(float(encoders["left"])),
+            abs(float(encoders["right"])),
+        )
+        if progress >= target_ticks:
+            self.serial.send_stop()
+            self._advance_step()
+            return
+        self._check_stall(progress)
+        if self.state != GridState.STOPPED:
+            if not self.serial.send_forward():
+                self._safe_stop("serial_command_failed")
+
     def _step_aruco_approach(self) -> None:
         """Steer toward a marker and stop when it fills enough of the camera frame."""
         step = self._current_step()
+        if step.get("aruco_creep_active"):
+            self._step_aruco_approach_creep(step)
+            return
         target_id = int(step["target_aruco_id"])
         frame, detection = self._read_frame_and_detection(target_id)
         if frame is None and self.stop_reason:
@@ -735,8 +809,7 @@ class GridController:
             self._step_deadline = None
 
         if float(detection["area"]) >= self.aruco_target_area_px:
-            self.serial.send_stop()
-            self._advance_step()
+            self._begin_aruco_approach_creep(step)
             return
 
         self._apply_aruco_steering(frame, detection)

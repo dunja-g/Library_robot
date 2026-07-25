@@ -94,6 +94,21 @@ if _auto_return_raw not in {"1", "true", "yes", "on", "0", "false", "no", "off"}
 AUTO_RETURN = _auto_return_raw in {"1", "true", "yes", "on"}
 grid_geometry = GridGeometry.from_env()
 encoder_calibration = EncoderCalibration.from_env()
+
+
+def _resolve_aruco_approach_creep(extra_cm: float) -> tuple[float, float]:
+    """Map extra inward distance to encoder ticks or a timed creep fallback."""
+    if extra_cm <= 0:
+        return 0.0, 0.0
+    try:
+        return float(encoder_calibration.distance_ticks(extra_cm)), 0.0
+    except ValueError:
+        speed = grid_geometry.forward_speed_cms
+        if speed:
+            return 0.0, round(extra_cm / float(speed), 3)
+        return 0.0, 0.0
+
+
 FUSION_ALPHA = float(os.getenv("LIBRARY_ROBOT_FUSION_ALPHA", "0.95"))
 HEADING_KP = float(os.getenv("LIBRARY_ROBOT_HEADING_KP", "1.5"))
 MAX_HEADING_CORRECTION = int(
@@ -296,6 +311,9 @@ if USE_MOCK:
         def detect_target(self, frame, target_id):
             return {"id": target_id, "center_x": 320, "center_y": 240, "area": 100000}
 
+    mock_approach_extra_ticks, mock_approach_extra_seconds = (
+        _resolve_aruco_approach_creep(8.0)
+    )
     controller = GridController(
         MockEncoderSerial(),
         destination_dwell_seconds=0.3,
@@ -309,6 +327,8 @@ if USE_MOCK:
         aruco_align_pulse_seconds=0.2,
         aruco_align_settle_seconds=2.0,
         aruco_align_fine_pulse_seconds=0.12,
+        aruco_approach_extra_ticks=mock_approach_extra_ticks,
+        aruco_approach_extra_seconds=mock_approach_extra_seconds,
     )
     
     # Mock clock to advance rapidly so timed steps finish instantly in tests
@@ -367,6 +387,9 @@ else:
     aruco_detector = None
     if GRID_VISION_SOURCE == "aruco":
         aruco_detector = ArucoDetector(min_area_px=config.min_marker_area_px)
+    approach_extra_ticks, approach_extra_seconds = _resolve_aruco_approach_creep(
+        config.aruco_approach_extra_cm
+    )
     controller = GridController(
         serial_bridge,
         obstacle_distance_cm=config.obstacle_distance_cm,
@@ -385,6 +408,8 @@ else:
         aruco_align_pulse_seconds=config.aruco_align_pulse_seconds,
         aruco_align_settle_seconds=config.aruco_align_settle_seconds,
         aruco_align_fine_pulse_seconds=config.aruco_align_fine_pulse_seconds,
+        aruco_approach_extra_ticks=approach_extra_ticks,
+        aruco_approach_extra_seconds=approach_extra_seconds,
         base_trim=base_trim,
     )
 

@@ -372,6 +372,40 @@ def test_aruco_align_advances_after_stop_and_detection():
     assert controller.get_status()["current_action"] == "FORWARD"
 
 
+def test_aruco_approach_creeps_forward_after_target_area():
+    serial, clock = FakeSerial(), FakeClock()
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+
+    controller = GridController(
+        serial,
+        clock=clock,
+        frame_provider=lambda: frame,
+        aruco_detector=CenteredArucoDetector(),
+        aruco_target_area_px=8000.0,
+        aruco_approach_extra_ticks=12.0,
+        alignment_confirmation_frames=1,
+    )
+    plan = build_grid_route(
+        "1A",
+        GridGeometry(10, 10, 5),
+        EncoderCalibration(1, 4, 8),
+        turn_source="imu",
+    )
+    controller.request_grid_mission(plan)
+    controller.step_index = 4
+    controller._start_current_step()
+
+    controller.step()
+    assert controller._current_step()["aruco_creep_active"] is True
+    assert "ENC_RESET" in serial.commands
+    assert serial.commands[-1] == "FORWARD"
+
+    serial.encoders = {"left": 12, "right": 12}
+    controller.step()
+    assert serial.commands[-1] == "STOP"
+    assert controller.get_state() == GridState.ARRIVED.value
+
+
 def test_aruco_hybrid_route_completes_with_mock_vision():
     serial, clock = FakeSerial(), FakeClock()
     frame = np.zeros((480, 640, 3), dtype=np.uint8)

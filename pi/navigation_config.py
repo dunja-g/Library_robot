@@ -46,6 +46,7 @@ class NavigationConfig:
     aruco_align_pulse_seconds: float = 0.2
     aruco_align_settle_seconds: float = 2.0
     aruco_align_fine_pulse_seconds: float = 0.12
+    aruco_approach_extra_cm: float = 8.0
     turn_90_seconds: float = 0.8
     uturn_seconds: float = 1.6
     destination_dwell_seconds: float = 5.0
@@ -82,6 +83,8 @@ class NavigationConfig:
             raise ValueError("aruco_align_settle_seconds must be positive")
         if self.aruco_align_fine_pulse_seconds <= 0:
             raise ValueError("aruco_align_fine_pulse_seconds must be positive")
+        if self.aruco_approach_extra_cm < 0:
+            raise ValueError("aruco_approach_extra_cm must be non-negative")
         if self.destination_dwell_seconds < 0:
             raise ValueError("destination_dwell_seconds must be non-negative")
 
@@ -128,6 +131,9 @@ class NavigationConfig:
             ),
             aruco_align_fine_pulse_seconds=_env_number(
                 "LIBRARY_ROBOT_ARUCO_ALIGN_FINE_PULSE_SECONDS", 0.12, float
+            ),
+            aruco_approach_extra_cm=_env_number(
+                "LIBRARY_ROBOT_ARUCO_APPROACH_EXTRA_CM", 8.0, float
             ),
             turn_90_seconds=_env_number(
                 "LIBRARY_ROBOT_TURN_90_SECONDS", 0.8, float
