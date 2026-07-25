@@ -20,6 +20,11 @@ float rightTicksPerCm = 4.0 / (PI * 6.5);
 float wheelTrackCm = 18.0;
 float headingKp = 1.5;
 int maxHeadingCorrection = 30;
+// Short-lived steering input reserved for a future dynamic controller.
+int dynamicSteerBias = 0;
+unsigned long lastSteerBiasMs = 0;
+const int MAX_STEER_BIAS = 20;
+const unsigned long STEER_BIAS_TIMEOUT_MS = 200;
 const unsigned long COMMAND_TIMEOUT_MS = 2000;
 const unsigned long IMU_TURN_TIMEOUT_MS = 5000;
 const unsigned long HEADING_CONTROL_INTERVAL_US = 10000;
@@ -195,25 +200,32 @@ void applyStraightClosedLoop() {
   if (linearMotionDirection == 0 || !motorsActive) {
     return;
   }
+  if (
+    dynamicSteerBias != 0
+    && millis() - lastSteerBiasMs > STEER_BIAS_TIMEOUT_MS
+  ) {
+    dynamicSteerBias = 0;
+  }
   headingCorrection = constrain(
     static_cast<int>(round(headingKp * headingFusedDeg)),
     -maxHeadingCorrection,
     maxHeadingCorrection
   );
+  int totalCorrection = headingCorrection + dynamicSteerBias;
 
   int leftBase = FORWARD_SPEED - leftSpeedReduction;
   int rightBase = FORWARD_SPEED + leftSpeedReduction;
   int leftSpeed;
   int rightSpeed;
   if (linearMotionDirection > 0) {
-    leftSpeed = leftBase + headingCorrection;
-    rightSpeed = rightBase - headingCorrection;
+    leftSpeed = leftBase + totalCorrection;
+    rightSpeed = rightBase - totalCorrection;
     setLeft(FORWARD, constrain(leftSpeed, 0, 255));
     setRight(FORWARD, constrain(rightSpeed, 0, 255));
   } else {
     // Steering polarity reverses when both wheels drive backward.
-    leftSpeed = leftBase - headingCorrection;
-    rightSpeed = rightBase + headingCorrection;
+    leftSpeed = leftBase - totalCorrection;
+    rightSpeed = rightBase + totalCorrection;
     setLeft(BACKWARD, constrain(leftSpeed, 0, 255));
     setRight(BACKWARD, constrain(rightSpeed, 0, 255));
   }
@@ -369,27 +381,33 @@ void handleCommand(const char *command) {
     cancelImuTurn();
     moveStraight(FORWARD);
   } else if (strcmp(command, "BACKWARD") == 0) {
+    dynamicSteerBias = 0;
     cancelImuTurn();
     moveStraight(BACKWARD);
   } else if (strcmp(command, "ROTATE_LEFT") == 0) {
+    dynamicSteerBias = 0;
     cancelImuTurn();
     rotateLeft();
   } else if (strcmp(command, "ROTATE_RIGHT") == 0) {
+    dynamicSteerBias = 0;
     cancelImuTurn();
     rotateRight();
   } else if (strncmp(command, "TURN_LEFT", 9) == 0) {
+    dynamicSteerBias = 0;
     float target = -90.0;
     if (command[9] == ':') {
       target = -abs(atof(command + 10));
     }
     startImuTurn(target);
   } else if (strncmp(command, "TURN_RIGHT", 10) == 0) {
+    dynamicSteerBias = 0;
     float target = 90.0;
     if (command[10] == ':') {
       target = abs(atof(command + 11));
     }
     startImuTurn(target);
   } else if (strncmp(command, "TURN_UTURN", 10) == 0) {
+    dynamicSteerBias = 0;
     float target = -180.0;
     if (command[10] == ':') {
       target = -abs(atof(command + 11));
@@ -398,6 +416,7 @@ void handleCommand(const char *command) {
   } else if (strcmp(command, "TURN_STATUS") == 0) {
     reportImuTurnStatus();
   } else if (strcmp(command, "STOP") == 0) {
+    dynamicSteerBias = 0;
     cancelImuTurn();
     stopAll();
   } else if (strcmp(command, "CHECK") == 0) {
@@ -410,6 +429,14 @@ void handleCommand(const char *command) {
     resetEncoders();
   } else if (strncmp(command, "SET_TRIM:", 9) == 0) {
     leftSpeedReduction = atoi(command + 9);
+  } else if (strncmp(command, "SET_STEER_BIAS:", 15) == 0) {
+    // Update steering only; motion state is deliberately left unchanged.
+    dynamicSteerBias = constrain(
+      atoi(command + 15),
+      -MAX_STEER_BIAS,
+      MAX_STEER_BIAS
+    );
+    lastSteerBiasMs = millis();
   } else if (strncmp(command, "SET_FUSION:", 11) == 0) {
     float alpha;
     float leftScale;

@@ -49,6 +49,9 @@ class NavigationConfig:
     aruco_align_pulse_seconds: float = 0.2
     aruco_align_settle_seconds: float = 2.0
     aruco_align_fine_pulse_seconds: float = 0.12
+    aruco_align_fine_settle_seconds: float = 0.4
+    aruco_align_max_search_pulses: int = 6
+    aruco_align_max_reacquire_pulses: int = 2
     aruco_approach_extra_cm: float = 8.0
     return_obstacle_distance_cm: float = 10.0
     invert_turn_direction: bool = True
@@ -92,6 +95,14 @@ class NavigationConfig:
             raise ValueError("aruco_align_settle_seconds must be positive")
         if self.aruco_align_fine_pulse_seconds <= 0:
             raise ValueError("aruco_align_fine_pulse_seconds must be positive")
+        if self.aruco_align_fine_settle_seconds <= 0:
+            raise ValueError("aruco_align_fine_settle_seconds must be positive")
+        if self.aruco_align_max_search_pulses <= 0:
+            raise ValueError("aruco_align_max_search_pulses must be positive")
+        if self.aruco_align_max_reacquire_pulses < 0:
+            raise ValueError(
+                "aruco_align_max_reacquire_pulses must be non-negative"
+            )
         if self.aruco_approach_extra_cm < 0:
             raise ValueError("aruco_approach_extra_cm must be non-negative")
         if self.return_obstacle_distance_cm <= 0:
@@ -151,6 +162,15 @@ class NavigationConfig:
             ),
             aruco_align_fine_pulse_seconds=_env_number(
                 "LIBRARY_ROBOT_ARUCO_ALIGN_FINE_PULSE_SECONDS", 0.12, float
+            ),
+            aruco_align_fine_settle_seconds=_env_number(
+                "LIBRARY_ROBOT_ARUCO_ALIGN_FINE_SETTLE_SECONDS", 0.4, float
+            ),
+            aruco_align_max_search_pulses=_env_number(
+                "LIBRARY_ROBOT_ARUCO_ALIGN_MAX_SEARCH_PULSES", 6, int
+            ),
+            aruco_align_max_reacquire_pulses=_env_number(
+                "LIBRARY_ROBOT_ARUCO_ALIGN_MAX_REACQUIRE_PULSES", 2, int
             ),
             aruco_approach_extra_cm=_env_number(
                 "LIBRARY_ROBOT_ARUCO_APPROACH_EXTRA_CM", 8.0, float

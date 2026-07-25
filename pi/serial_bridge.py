@@ -97,6 +97,11 @@ class SerialBridge:
         self._send("FORWARD")
         return success
 
+    def set_steer_bias(self, bias: int) -> bool:
+        """Set a bounded, short-lived steering correction without starting motion."""
+        bounded_bias = max(-20, min(20, int(bias)))
+        return self._send(f"SET_STEER_BIAS:{bounded_bias}")
+
     def set_fusion_config(
         self,
         *,
