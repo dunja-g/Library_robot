@@ -33,6 +33,7 @@ try:
     from .encoder_navigation import GridController
     from .grid_layout import EncoderCalibration, GridGeometry, GRID_MARKERS, build_grid_route
     from .qr_scanner import QRScanner
+    from .rl_residual_adapter import RLResidualAdapter
 except ImportError:  # Supports ``python pi/app.py``.
     from borrowing_mission import BorrowingMission, BorrowingState
     from student_db import (
@@ -48,6 +49,7 @@ except ImportError:  # Supports ``python pi/app.py``.
     from encoder_navigation import GridController
     from grid_layout import EncoderCalibration, GridGeometry, GRID_MARKERS, build_grid_route
     from qr_scanner import QRScanner
+    from rl_residual_adapter import RLResidualAdapter
 
 
 logging.basicConfig(level=logging.INFO)
@@ -440,6 +442,24 @@ else:
     atexit.register(_shutdown_hardware)
 
 
+rl_adapter = (
+    RLResidualAdapter(mode="disabled")
+    if config is None
+    else RLResidualAdapter.from_config(config, serial_bridge=serial_bridge)
+)
+if rl_adapter.load_error:
+    logger.warning(
+        "RL steering assist inactive (%s); navigation is unaffected",
+        rl_adapter.load_error,
+    )
+elif rl_adapter.mode != "disabled":
+    logger.info(
+        "RL steering assist running in %s mode from %s",
+        rl_adapter.mode,
+        rl_adapter.model_dir,
+    )
+
+
 def _cancel_pending_mission(reason: str) -> bool:
     mission = _current_borrowing_mission
     if mission is None or mission.state != BorrowingState.PENDING:
@@ -508,6 +528,11 @@ def _control_loop():
             controller.step()
         except Exception:
             logger.exception("Robot control loop failed; controller stopped safely")
+        if rl_adapter.mode != "disabled":
+            try:
+                rl_adapter.step_from_status(controller.get_status())
+            except Exception:
+                logger.exception("RL steering assist failed; navigation continues")
         _reconcile_borrowing_state()
         time.sleep(0.1 if USE_MOCK else 1.0 / config.control_hz)
 
@@ -792,6 +817,7 @@ def status():
     } if student else None
     mission = _get_current_mission()
     data["borrowing_mission"] = None if mission is None else mission.as_dict()
+    data["rl"] = rl_adapter.get_status()
     return jsonify(data)
 
 

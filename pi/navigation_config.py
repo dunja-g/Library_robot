@@ -59,6 +59,10 @@ class NavigationConfig:
     uturn_seconds: float = 1.6
     destination_dwell_seconds: float = 5.0
     auto_return: bool = True
+    rl_mode: str = "disabled"
+    rl_model_dir: str = ""
+    rl_max_bias: int = 5
+    rl_deadline_ms: float = 50.0
 
     def __post_init__(self):
         positive = {
@@ -109,6 +113,12 @@ class NavigationConfig:
             raise ValueError("return_obstacle_distance_cm must be positive")
         if self.destination_dwell_seconds < 0:
             raise ValueError("destination_dwell_seconds must be non-negative")
+        if self.rl_mode not in {"disabled", "shadow", "active"}:
+            raise ValueError("rl_mode must be 'disabled', 'shadow', or 'active'")
+        if self.rl_max_bias < 0:
+            raise ValueError("rl_max_bias must be non-negative")
+        if self.rl_deadline_ms <= 0:
+            raise ValueError("rl_deadline_ms must be positive")
 
     @classmethod
     def from_env(cls) -> "NavigationConfig":
@@ -191,4 +201,10 @@ class NavigationConfig:
                 "LIBRARY_ROBOT_DESTINATION_DWELL_SECONDS", 5.0, float
             ),
             auto_return=_env_bool("LIBRARY_ROBOT_AUTO_RETURN", True),
+            rl_mode=os.getenv("LIBRARY_ROBOT_RL_MODE", "disabled").strip().lower(),
+            rl_model_dir=os.getenv("LIBRARY_ROBOT_RL_MODEL_DIR", "").strip(),
+            rl_max_bias=_env_number("LIBRARY_ROBOT_RL_MAX_BIAS", 5, int),
+            rl_deadline_ms=_env_number(
+                "LIBRARY_ROBOT_RL_DEADLINE_MS", 50.0, float
+            ),
         )
