@@ -288,6 +288,11 @@ def finish_align_settle(controller, clock):
     controller.step()
 
 
+def finish_align_fine_settle(controller, clock):
+    clock.now += controller.aruco_align_fine_settle_seconds + 0.01
+    controller.step()
+
+
 class CenteredArucoDetector:
     def detect_target(self, frame, target_id):
         return {
@@ -374,6 +379,187 @@ def test_aruco_align_fine_pulses_when_marker_is_off_center():
     controller.step()
     assert serial.commands[-1] == "ROTATE_RIGHT"
     assert controller._align_pulse_deadline is not None
+
+
+def test_aruco_align_search_alternates_when_marker_stays_missing():
+    serial, clock = FakeSerial(), FakeClock()
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+
+    controller = GridController(
+        serial,
+        clock=clock,
+        frame_provider=lambda: frame,
+        aruco_detector=MissingArucoDetector(),
+        alignment_confirmation_frames=1,
+        aruco_align_pulse_seconds=0.2,
+        invert_turn_direction=False,
+    )
+    plan = build_grid_route(
+        "1A",
+        GridGeometry(10, 10, 5),
+        EncoderCalibration(1, 4, 8),
+        turn_source="imu",
+    )
+    controller.request_grid_mission(plan)
+
+    finish_align_settle(controller, clock)
+    assert serial.commands[-1] == "ROTATE_LEFT"
+
+    finish_align_pulse(controller, clock)
+    finish_align_settle(controller, clock)
+    assert serial.commands[-1] == "ROTATE_RIGHT"
+
+
+class FlickerOffCenterArucoDetector:
+    def __init__(self):
+        self.calls = 0
+
+    def detect_target(self, frame, target_id):
+        self.calls += 1
+        if self.calls == 1:
+            return {
+                "id": target_id,
+                "center_x": 500,
+                "center_y": 240,
+                "area": 100000,
+            }
+        if self.calls in {2, 3}:
+            return None
+        return {
+            "id": target_id,
+            "center_x": 500,
+            "center_y": 240,
+            "area": 100000,
+        }
+
+
+def test_aruco_align_reacquires_toward_last_offset_after_brief_loss():
+    serial, clock = FakeSerial(), FakeClock()
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    detector = FlickerOffCenterArucoDetector()
+
+    controller = GridController(
+        serial,
+        clock=clock,
+        frame_provider=lambda: frame,
+        aruco_detector=detector,
+        alignment_confirmation_frames=1,
+        aruco_align_pulse_seconds=0.2,
+        aruco_align_fine_pulse_seconds=0.12,
+        aruco_align_fine_settle_seconds=0.4,
+        invert_turn_direction=False,
+    )
+    plan = build_grid_route(
+        "1A",
+        GridGeometry(10, 10, 5),
+        EncoderCalibration(1, 4, 8),
+        turn_source="imu",
+    )
+    controller.request_grid_mission(plan)
+
+    finish_align_settle(controller, clock)
+    controller.step()
+    assert serial.commands[-1] == "ROTATE_RIGHT"
+
+    clock.now += controller.aruco_align_fine_pulse_seconds + 0.01
+    controller.step()
+    finish_align_fine_settle(controller, clock)
+    assert serial.commands[-1] == "ROTATE_RIGHT"
+
+
+class VanishingOffCenterArucoDetector:
+    def __init__(self):
+        self.calls = 0
+
+    def detect_target(self, frame, target_id):
+        self.calls += 1
+        if self.calls > 1:
+            return None
+        return {
+            "id": target_id,
+            "center_x": 500,
+            "center_y": 240,
+            "area": 100000,
+        }
+
+
+def test_aruco_align_stops_chasing_one_direction_after_reacquire_budget():
+    serial, clock = FakeSerial(), FakeClock()
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+
+    controller = GridController(
+        serial,
+        clock=clock,
+        frame_provider=lambda: frame,
+        aruco_detector=VanishingOffCenterArucoDetector(),
+        alignment_confirmation_frames=1,
+        aruco_align_pulse_seconds=0.2,
+        aruco_align_fine_pulse_seconds=0.12,
+        aruco_align_fine_settle_seconds=0.4,
+        aruco_align_max_reacquire_pulses=1,
+        invert_turn_direction=False,
+    )
+    plan = build_grid_route(
+        "1A",
+        GridGeometry(10, 10, 5),
+        EncoderCalibration(1, 4, 8),
+        turn_source="imu",
+    )
+    controller.request_grid_mission(plan)
+
+    finish_align_settle(controller, clock)
+    controller.step()
+    assert serial.commands[-1] == "ROTATE_RIGHT"
+
+    rotations = []
+    for _ in range(6):
+        if controller._align_pulse_deadline is not None:
+            clock.now = controller._align_pulse_deadline + 0.01
+        elif controller._align_settle_until is not None:
+            clock.now = controller._align_settle_until + 0.01
+        controller.step()
+        if serial.commands[-1].startswith("ROTATE"):
+            rotations.append(serial.commands[-1])
+
+    assert "ROTATE_LEFT" in rotations
+
+
+def test_aruco_align_gives_up_instead_of_spinning_when_marker_never_appears():
+    serial, clock = FakeSerial(), FakeClock()
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+
+    controller = GridController(
+        serial,
+        clock=clock,
+        frame_provider=lambda: frame,
+        aruco_detector=MissingArucoDetector(),
+        alignment_confirmation_frames=1,
+        aruco_align_pulse_seconds=0.2,
+        aruco_align_max_search_pulses=3,
+        invert_turn_direction=False,
+    )
+    plan = build_grid_route(
+        "1A",
+        GridGeometry(10, 10, 5),
+        EncoderCalibration(1, 4, 8),
+        turn_source="imu",
+    )
+    controller.request_grid_mission(plan)
+
+    for _ in range(20):
+        if controller._align_pulse_deadline is not None:
+            clock.now = controller._align_pulse_deadline + 0.01
+        elif controller._align_settle_until is not None:
+            clock.now = controller._align_settle_until + 0.01
+        controller.step()
+        if controller.get_state() == GridState.STOPPED.value:
+            break
+
+    assert controller.get_state() == GridState.STOPPED.value
+    assert controller.get_status()["reason"] == "aruco_marker_not_found"
+    assert serial.commands.count("ROTATE_LEFT") + serial.commands.count(
+        "ROTATE_RIGHT"
+    ) == 3
 
 
 def test_aruco_align_advances_after_stop_and_detection():

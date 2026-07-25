@@ -41,6 +41,9 @@ class GridController:
         aruco_align_pulse_seconds: float = 0.2,
         aruco_align_settle_seconds: float = 2.0,
         aruco_align_fine_pulse_seconds: float = 0.12,
+        aruco_align_fine_settle_seconds: float = 0.4,
+        aruco_align_max_search_pulses: int = 6,
+        aruco_align_max_reacquire_pulses: int = 2,
         return_obstacle_distance_cm: float = 10.0,
         aruco_approach_extra_ticks: float = 0.0,
         aruco_approach_extra_seconds: float = 0.0,
@@ -71,6 +74,12 @@ class GridController:
             raise ValueError("aruco_align_settle_seconds must be positive")
         if aruco_align_fine_pulse_seconds <= 0:
             raise ValueError("aruco_align_fine_pulse_seconds must be positive")
+        if aruco_align_fine_settle_seconds <= 0:
+            raise ValueError("aruco_align_fine_settle_seconds must be positive")
+        if aruco_align_max_search_pulses <= 0:
+            raise ValueError("aruco_align_max_search_pulses must be positive")
+        if aruco_align_max_reacquire_pulses < 0:
+            raise ValueError("aruco_align_max_reacquire_pulses must be non-negative")
         if aruco_approach_extra_ticks < 0:
             raise ValueError("aruco_approach_extra_ticks must be non-negative")
         if aruco_approach_extra_seconds < 0:
@@ -92,6 +101,9 @@ class GridController:
         self.aruco_align_pulse_seconds = float(aruco_align_pulse_seconds)
         self.aruco_align_settle_seconds = float(aruco_align_settle_seconds)
         self.aruco_align_fine_pulse_seconds = float(aruco_align_fine_pulse_seconds)
+        self.aruco_align_fine_settle_seconds = float(aruco_align_fine_settle_seconds)
+        self.aruco_align_max_search_pulses = int(aruco_align_max_search_pulses)
+        self.aruco_align_max_reacquire_pulses = int(aruco_align_max_reacquire_pulses)
         self.aruco_approach_extra_ticks = float(aruco_approach_extra_ticks)
         self.aruco_approach_extra_seconds = float(aruco_approach_extra_seconds)
         self.return_obstacle_distance_cm = float(return_obstacle_distance_cm)
@@ -120,6 +132,13 @@ class GridController:
         self._align_pulse_deadline: float | None = None
         self._align_settle_until: float | None = None
         self._align_pulse_is_fine: bool = False
+        self._align_settle_short: bool = False
+        self._align_last_error_x: float | None = None
+        self._align_search_direction: str = "left"
+        self._align_search_span: int = 1
+        self._align_search_leg_done: int = 0
+        self._align_search_total: int = 0
+        self._align_reacquire_pulses: int = 0
 
     def request_grid_mission(self, plan: dict) -> None:
         if not plan.get("outbound") or not plan.get("return"):
@@ -398,6 +417,7 @@ class GridController:
         if action == "ARUCO_ALIGN":
             self._align_pulse_deadline = None
             self._align_pulse_is_fine = False
+            self._reset_align_search_state()
             self._step_deadline = self._clock() + self.aruco_scan_timeout_seconds
             self._begin_align_settle()
             return
@@ -615,12 +635,94 @@ class GridController:
         else:
             self.serial.send_rotate_right()
 
-    def _begin_align_settle(self) -> None:
+    def _marker_error_x(self, frame: Any, detection: dict) -> float:
+        return float(detection["center_x"]) - (frame.shape[1] / 2.0)
+
+    def _turn_toward_error(self, error_x: float, *, fine: bool) -> None:
+        """Turn so an off-centre marker moves toward the middle of the frame."""
+        if abs(error_x) <= self.align_tolerance_px:
+            return
+        direction = "left" if error_x < 0 else "right"
+        self._start_align_pulse(direction, fine=fine)
+
+    def _can_reacquire(self) -> bool:
+        """True while a briefly lost marker may still be chased in its last direction."""
+        return (
+            self._align_last_error_x is not None
+            and abs(self._align_last_error_x) > self.align_tolerance_px
+            and self._align_reacquire_pulses < self.aruco_align_max_reacquire_pulses
+        )
+
+    def _reset_align_search_state(self) -> None:
+        self._align_settle_short = False
+        self._align_last_error_x = None
+        self._align_search_direction = "left"
+        self._align_search_span = 1
+        self._align_search_leg_done = 0
+        self._align_search_total = 0
+        self._align_reacquire_pulses = 0
+
+    def _bias_search_direction(self, frame: Any | None, target_id: int) -> None:
+        """Aim the first sweep leg at wherever a marker was last seen."""
+        if self._align_search_total > 0:
+            return
+
+        if (
+            self._align_last_error_x is not None
+            and abs(self._align_last_error_x) > self.align_tolerance_px
+        ):
+            self._align_search_direction = (
+                "left" if self._align_last_error_x < 0 else "right"
+            )
+            return
+
+        if frame is None or self.aruco_detector is None:
+            return
+        detect = getattr(self.aruco_detector, "detect", None)
+        if not callable(detect):
+            return
+        detections = detect(frame)
+        target_matches = [
+            item for item in detections if int(item["id"]) == target_id
+        ]
+        candidates = target_matches or detections
+        if not candidates:
+            return
+        best = max(candidates, key=lambda item: float(item["area"]))
+        error = self._marker_error_x(frame, best)
+        if abs(error) > self.align_tolerance_px:
+            self._align_search_direction = "left" if error < 0 else "right"
+
+    def _begin_align_search_pulse(self, frame: Any | None, target_id: int) -> None:
+        """Sweep in widening left/right legs, then give up instead of spinning on."""
+        if self._align_search_total >= self.aruco_align_max_search_pulses:
+            self._safe_stop("aruco_marker_not_found")
+            return
+
+        self._bias_search_direction(frame, target_id)
+        if self._align_search_leg_done >= self._align_search_span:
+            self._align_search_direction = (
+                "right" if self._align_search_direction == "left" else "left"
+            )
+            self._align_search_span += 1
+            self._align_search_leg_done = 0
+
+        self._align_search_leg_done += 1
+        self._align_search_total += 1
+        self._start_align_pulse(self._align_search_direction, fine=False)
+
+    def _begin_align_settle(self, *, short: bool = False) -> None:
         """Hold still so the camera can capture a stable frame after a missed detect."""
         self.serial.send_stop()
         self._align_pulse_deadline = None
         self._align_pulse_is_fine = False
-        self._align_settle_until = self._clock() + self.aruco_align_settle_seconds
+        duration = (
+            self.aruco_align_fine_settle_seconds
+            if short
+            else self.aruco_align_settle_seconds
+        )
+        self._align_settle_short = short
+        self._align_settle_until = self._clock() + duration
         self.state = GridState.TURNING
 
     def _maybe_apply_aruco_tracking(self, step: dict) -> None:
@@ -645,11 +747,16 @@ class GridController:
     ) -> None:
         if detection is None:
             self._aligned_frames = 0
-            self._begin_align_settle()
+            self._begin_align_settle(short=self._can_reacquire())
             return
 
+        error = self._marker_error_x(frame, detection)
+        self._align_last_error_x = error
         self._target_missing_frames = 0
-        error = float(detection["center_x"]) - (frame.shape[1] / 2.0)
+        self._align_reacquire_pulses = 0
+        self._align_search_span = 1
+        self._align_search_leg_done = 0
+        self._align_search_total = 0
         if abs(error) <= self.align_tolerance_px:
             self.serial.send_stop()
             self._aligned_frames += 1
@@ -658,11 +765,12 @@ class GridController:
                 self._align_pulse_deadline = None
                 self._align_settle_until = None
                 self._align_pulse_is_fine = False
+                self._reset_align_search_state()
                 on_centered()
             return
 
         self._aligned_frames = 0
-        self._start_align_pulse("left" if error < 0 else "right", fine=True)
+        self._turn_toward_error(error, fine=True)
 
     def _step_aruco_centering(self, step: dict, target_id: int, *, on_centered) -> None:
         """Pulse-rotate and settle until the marker is centred, then run ``on_centered``."""
@@ -671,6 +779,7 @@ class GridController:
             self._align_pulse_deadline = None
             self._align_settle_until = None
             self._align_pulse_is_fine = False
+            self._reset_align_search_state()
             self._safe_stop("aruco_scan_timeout")
             return
 
@@ -678,7 +787,9 @@ class GridController:
             self.serial.send_stop()
             if self._clock() < self._align_settle_until:
                 return
+            short_settle = self._align_settle_short
             self._align_settle_until = None
+            self._align_settle_short = False
             frame, detection = self._read_frame_and_detection(target_id)
             if frame is None and self.stop_reason:
                 return
@@ -686,7 +797,11 @@ class GridController:
                 return
             if detection is None:
                 self._aligned_frames = 0
-                self._start_align_pulse("left", fine=False)
+                if short_settle and self._can_reacquire():
+                    self._align_reacquire_pulses += 1
+                    self._turn_toward_error(self._align_last_error_x, fine=True)
+                else:
+                    self._begin_align_search_pulse(frame, target_id)
                 return
             self._handle_align_detection(frame, detection, on_centered=on_centered)
             return
@@ -713,7 +828,7 @@ class GridController:
         if detection is None:
             self._target_missing_frames += 1
             self._aligned_frames = 0
-            self._begin_align_settle()
+            self._begin_align_settle(short=False)
             return
         self._handle_align_detection(frame, detection, on_centered=on_centered)
 
