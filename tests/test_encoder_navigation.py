@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 
 from pi.encoder_navigation import GridController, GridState
 from pi.grid_layout import EncoderCalibration, GridGeometry, build_grid_route
@@ -53,7 +54,8 @@ def make_controller():
         encoder_stall_seconds=2,
     )
     plan = build_grid_route(
-        "1A", GridGeometry(10, 10, 5), EncoderCalibration(1, 4, 8)
+        "1A", GridGeometry(10, 10, 5), EncoderCalibration(1, 4, 8),
+        vision_source="encoder",
     )
     controller.request_grid_mission(plan)
     return controller, serial, clock
@@ -134,7 +136,8 @@ def test_serial_motion_command_failure_stops_mission():
     serial.motion_ok = False
     controller = GridController(serial, clock=clock)
     plan = build_grid_route(
-        "1A", GridGeometry(10, 10, 5), EncoderCalibration(1, 4, 8)
+        "1A", GridGeometry(10, 10, 5), EncoderCalibration(1, 4, 8),
+        vision_source="encoder",
     )
 
     controller.request_grid_mission(plan)
@@ -200,7 +203,8 @@ def test_confirmation_mission_waits_at_shelf_before_reverse_return():
     serial, clock = FakeSerial(), FakeClock()
     controller = GridController(serial, clock=clock, destination_dwell_seconds=0)
     plan = build_grid_route(
-        "1A", GridGeometry(10, 10, 5), EncoderCalibration(1, 4, 8)
+        "1A", GridGeometry(10, 10, 5), EncoderCalibration(1, 4, 8),
+        vision_source="encoder",
     )
     plan["pickup_confirmation_required"] = True
     controller.request_grid_mission(plan)
@@ -220,7 +224,8 @@ def test_confirmation_mission_waits_at_shelf_before_reverse_return():
 def test_duplicate_grid_mission_is_rejected():
     controller, _serial, _clock = make_controller()
     duplicate = build_grid_route(
-        "2A", GridGeometry(10, 10, 5), EncoderCalibration(1, 4, 8)
+        "2A", GridGeometry(10, 10, 5), EncoderCalibration(1, 4, 8),
+        vision_source="encoder",
     )
     with pytest.raises(RuntimeError, match="already active"):
         controller.request_grid_mission(duplicate)
@@ -232,7 +237,9 @@ def test_imu_turn_source_does_not_depend_on_four_tick_encoder_turns():
         serial, clock=clock, destination_dwell_seconds=0, turn_source="imu"
     )
     plan = build_grid_route(
-        "1B", GridGeometry(10, 10, 5), EncoderCalibration(1, 4, 8)
+        "1B", GridGeometry(10, 10, 5), EncoderCalibration(1, 4, 8),
+        vision_source="encoder",
+        turn_source="imu",
     )
     controller.request_grid_mission(plan)
     complete_step(controller, serial)
@@ -241,3 +248,47 @@ def test_imu_turn_source_does_not_depend_on_four_tick_encoder_turns():
     serial.turn_status = "DONE"
     controller.step()
     assert controller.get_state() == GridState.MOVING.value
+
+
+def test_aruco_hybrid_route_completes_with_mock_vision():
+    serial, clock = FakeSerial(), FakeClock()
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+
+    class FakeArucoDetector:
+        def detect_target(self, frame, target_id):
+            return {
+                "id": target_id,
+                "center_x": 320,
+                "center_y": 240,
+                "area": 100000,
+            }
+
+    controller = GridController(
+        serial,
+        clock=clock,
+        destination_dwell_seconds=0,
+        turn_source="imu",
+        frame_provider=lambda: frame,
+        aruco_detector=FakeArucoDetector(),
+        alignment_confirmation_frames=1,
+        aruco_target_area_px=8000.0,
+    )
+    plan = build_grid_route(
+        "1A",
+        GridGeometry(10, 10, 5),
+        EncoderCalibration(1, 4, 8),
+        turn_source="imu",
+    )
+    controller.request_grid_mission(plan)
+    assert controller.get_status()["current_action"] == "ARUCO_ALIGN"
+
+    controller.step()
+    complete_step(controller, serial)
+    assert controller.get_status()["current_action"] == "TURN_LEFT"
+
+    serial.turn_status = "DONE"
+    controller.step()
+    controller.step()
+    complete_step(controller, serial)
+
+    assert controller.get_state() == GridState.ARRIVED.value

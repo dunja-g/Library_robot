@@ -31,6 +31,15 @@ class GridController:
         destination_dwell_seconds: float = 5.0,
         encoder_stall_seconds: float = 2.0,
         turn_source: str = "encoder",
+        frame_provider: Any | None = None,
+        aruco_detector: Any | None = None,
+        align_tolerance_px: int = 30,
+        alignment_confirmation_frames: int = 2,
+        target_loss_tolerance_frames: int = 3,
+        aruco_target_area_px: float = 8000.0,
+        aruco_scan_timeout_seconds: float = 60.0,
+        base_trim: int = 15,
+        aruco_steering_kp: float = -0.15,
         clock=time.monotonic,
     ):
         if obstacle_distance_cm <= 0 or encoder_stall_seconds <= 0:
@@ -39,11 +48,30 @@ class GridController:
             raise ValueError("Destination dwell must be non-negative")
         if turn_source not in {"encoder", "imu"}:
             raise ValueError("turn_source must be 'encoder' or 'imu'")
+        if align_tolerance_px < 0:
+            raise ValueError("align_tolerance_px must be non-negative")
+        if alignment_confirmation_frames <= 0:
+            raise ValueError("alignment_confirmation_frames must be positive")
+        if target_loss_tolerance_frames < 0:
+            raise ValueError("target_loss_tolerance_frames must be non-negative")
+        if aruco_target_area_px <= 0:
+            raise ValueError("aruco_target_area_px must be positive")
+        if aruco_scan_timeout_seconds <= 0:
+            raise ValueError("aruco_scan_timeout_seconds must be positive")
         self.serial = serial_bridge
         self.obstacle_distance_cm = float(obstacle_distance_cm)
         self.destination_dwell_seconds = float(destination_dwell_seconds)
         self.encoder_stall_seconds = float(encoder_stall_seconds)
         self.turn_source = turn_source
+        self.frame_provider = frame_provider
+        self.aruco_detector = aruco_detector
+        self.align_tolerance_px = int(align_tolerance_px)
+        self.alignment_confirmation_frames = int(alignment_confirmation_frames)
+        self.target_loss_tolerance_frames = int(target_loss_tolerance_frames)
+        self.aruco_target_area_px = float(aruco_target_area_px)
+        self.aruco_scan_timeout_seconds = float(aruco_scan_timeout_seconds)
+        self.base_trim = int(base_trim)
+        self.aruco_steering_kp = float(aruco_steering_kp)
         self._clock = clock
         self._lock = threading.RLock()
         self.state = GridState.IDLE
@@ -60,6 +88,9 @@ class GridController:
         self._latest_ultrasonic: dict | None = None
         self._latest_turn_status: str | None = None
         self._awaiting_pickup_confirmation = False
+        self._aligned_frames = 0
+        self._target_missing_frames = 0
+        self._current_trim = self.base_trim
 
     def request_grid_mission(self, plan: dict) -> None:
         if not plan.get("outbound") or not plan.get("return"):
@@ -89,7 +120,9 @@ class GridController:
             status = {
                 "state": self.state.value,
                 "reason": self.stop_reason,
-                "navigation_mode": "grid_fused_odometry",
+                "navigation_mode": "grid_aruco_hybrid"
+                if self._uses_aruco_steps()
+                else "grid_fused_odometry",
                 "active_controller": "GridController",
                 "return_strategy": "direct_reverse",
                 "phase": self.phase,
@@ -213,6 +246,9 @@ class GridController:
             self._latest_ultrasonic = None
             self._latest_turn_status = None
             self._awaiting_pickup_confirmation = False
+            self._aligned_frames = 0
+            self._target_missing_frames = 0
+            self._current_trim = self.base_trim
 
     def confirm_pickup(self) -> None:
         """Start the return route after the user confirms taking the book."""
@@ -256,6 +292,16 @@ class GridController:
                 step = self._current_step()
                 if step is None:
                     self._safe_stop("route_state_error")
+                    return
+                action = step["action"]
+                if action == "ARUCO_ALIGN":
+                    self._step_aruco_align()
+                    return
+                if action == "ARUCO_APPROACH":
+                    self._step_aruco_approach()
+                    return
+                if action == "ARUCO_GUIDED_FORWARD":
+                    self._step_aruco_guided_forward()
                     return
                 if self.state == GridState.TURNING and self.turn_source == "imu":
                     self._step_imu_turn()
@@ -309,6 +355,31 @@ class GridController:
         step = self._current_step()
         if step is None:
             raise RuntimeError("No grid route step is available")
+        step.pop("aruco_locked", None)
+        self._aligned_frames = 0
+        self._target_missing_frames = 0
+        action = step["action"]
+        if action == "ARUCO_ALIGN":
+            self._step_deadline = self._clock() + self.aruco_scan_timeout_seconds
+            self.state = GridState.TURNING
+            return
+        if action == "ARUCO_APPROACH":
+            self._step_deadline = self._clock() + self.aruco_scan_timeout_seconds
+            self._latest_encoders = {"left": 0, "right": 0}
+            self._latest_odometry = None
+            self.state = GridState.MOVING
+            return
+        if action == "ARUCO_GUIDED_FORWARD":
+            if not self.serial.reset_encoders():
+                self._safe_stop("encoder_reset_failed")
+                return
+            self._last_progress_ticks = 0.0
+            self._last_progress_at = self._clock()
+            self._step_deadline = self._clock() + self.aruco_scan_timeout_seconds
+            self._latest_encoders = {"left": 0, "right": 0}
+            self._latest_odometry = None
+            self.state = GridState.MOVING
+            return
         # IMU turns
         if (
             self.turn_source == "imu"
@@ -432,84 +503,161 @@ class GridController:
             else:
                 self._start_current_step()
 
+    def _uses_aruco_steps(self) -> bool:
+        if self.plan is None:
+            return False
+        aruco_actions = {"ARUCO_ALIGN", "ARUCO_APPROACH", "ARUCO_GUIDED_FORWARD"}
+        for key in ("outbound", "return"):
+            for step in self.plan.get(key, []):
+                if step.get("action") in aruco_actions:
+                    return True
+        return False
 
+    def _vision_ready(self) -> bool:
+        return self.frame_provider is not None and self.aruco_detector is not None
 
-    def _step_aruco_approach(self) -> None:
-        """Dynamically steer towards an ArUco marker while driving forward."""
-        if self.frame_provider is None or self.aruco_detector is None:
+    def _read_frame_and_detection(self, target_id: int) -> tuple[Any | None, dict | None]:
+        if not self._vision_ready():
             self._safe_stop("aruco_unavailable_no_camera")
-            return
-            
-        step = self._current_step()
-        target_id = step.get("target_aruco_id")
-        
+            return None, None
         try:
             frame = self.frame_provider()
         except Exception:
             self._safe_stop("camera_read_failed")
-            return
-            
+            return None, None
         if frame is None:
-            return  # No new frame yet
-            
+            return None, None
         detection = self.aruco_detector.detect_target(frame, target_id)
-        if not detection:
-            # Marker not in view
+        return frame, detection
+
+    def _apply_aruco_steering(self, frame: Any, detection: dict) -> None:
+        frame_width = frame.shape[1]
+        error_x = float(detection["center_x"]) - (frame_width / 2.0)
+        adjustment = int(error_x * self.aruco_steering_kp)
+        new_trim = self.base_trim + adjustment
+        new_trim = max(self.base_trim - 30, min(self.base_trim + 30, new_trim))
+        if new_trim != self._current_trim and hasattr(self.serial, "set_trim"):
+            self._current_trim = new_trim
+            self.serial.set_trim(new_trim)
+
+    def _reset_aruco_trim(self) -> None:
+        if self._current_trim != self.base_trim and hasattr(self.serial, "set_trim"):
+            self.serial.set_trim(self.base_trim)
+        self._current_trim = self.base_trim
+
+    def _advance_step(self) -> None:
+        self._reset_aruco_trim()
+        self.step_index += 1
+        if self.step_index >= len(self._current_steps()):
+            self._complete_phase()
+        else:
+            self._start_current_step()
+
+    def _step_aruco_align(self) -> None:
+        """Rotate in place until the target marker is centred in the camera."""
+        step = self._current_step()
+        target_id = int(step["target_aruco_id"])
+        frame, detection = self._read_frame_and_detection(target_id)
+        if frame is None and self.stop_reason:
+            return
+        if frame is None:
+            return
+        if detection is None:
+            self.serial.send_stop()
+            self._target_missing_frames += 1
+            self._aligned_frames = 0
+            if self._step_deadline and self._clock() > self._step_deadline:
+                self._safe_stop("aruco_scan_timeout")
+                return
+            self.state = GridState.TURNING
+            self.serial.send_rotate_left()
+            return
+        self._target_missing_frames = 0
+        error = float(detection["center_x"]) - (frame.shape[1] / 2.0)
+        if abs(error) <= self.align_tolerance_px:
+            self.serial.send_stop()
+            self._aligned_frames += 1
+            if self._aligned_frames >= self.alignment_confirmation_frames:
+                self._step_deadline = None
+                self._advance_step()
+            return
+        self._aligned_frames = 0
+        self.state = GridState.TURNING
+        if error < 0:
+            self.serial.send_rotate_left()
+        else:
+            self.serial.send_rotate_right()
+
+    def _step_aruco_guided_forward(self) -> None:
+        """Drive forward for a fixed encoder distance while tracking a marker."""
+        step = self._current_step()
+        target_id = int(step["target_aruco_id"])
+        target_ticks = float(step["target_ticks"])
+        get_odometry = getattr(self.serial, "get_odometry", None)
+        odometry = get_odometry() if callable(get_odometry) else None
+        encoders = odometry if odometry is not None else self.serial.get_encoders()
+        if not self._valid_encoders(encoders):
+            self._safe_stop("encoder_unavailable")
+            return
+        self._latest_encoders = dict(encoders)
+        if odometry is not None:
+            self._latest_odometry = dict(odometry)
+        progress = min(
+            abs(float(encoders["left"])),
+            abs(float(encoders["right"])),
+        )
+        if progress >= target_ticks:
+            self.serial.send_stop()
+            self._step_deadline = None
+            self._advance_step()
+            return
+        frame, detection = self._read_frame_and_detection(target_id)
+        if frame is None and self.stop_reason:
+            return
+        if detection is not None:
+            step["aruco_locked"] = True
+            self._apply_aruco_steering(frame, detection)
+        elif step.get("aruco_locked"):
+            self._reset_aruco_trim()
+        elif self._step_deadline and self._clock() > self._step_deadline:
+            step["aruco_locked"] = True
+            self._step_deadline = None
+        self._check_stall(progress)
+        if self.state != GridState.STOPPED:
+            if not self.serial.send_forward():
+                self._safe_stop("serial_command_failed")
+
+    def _step_aruco_approach(self) -> None:
+        """Steer toward a marker and stop when it fills enough of the camera frame."""
+        step = self._current_step()
+        target_id = int(step["target_aruco_id"])
+        frame, detection = self._read_frame_and_detection(target_id)
+        if frame is None and self.stop_reason:
+            return
+        if frame is None:
+            return
+        if detection is None:
             if not step.get("aruco_locked"):
                 if self._step_deadline and self._clock() > self._step_deadline:
-                    # Give up waiting, just move forward and hope we find it
-                    step["aruco_locked"] = True
-                    self._step_deadline = None
-                    self.serial.send_action("FORWARD")
+                    self._safe_stop("aruco_scan_timeout")
                 return
-                
-            # We were locked but lost it, just keep driving straight using base trim
-            if self._current_trim != self.base_trim:
-                self._current_trim = self.base_trim
-                if hasattr(self.serial, "set_trim"):
-                    self.serial.set_trim(self.base_trim)
+            self._reset_aruco_trim()
+            if not self.serial.send_forward():
+                self._safe_stop("serial_command_failed")
             return
 
-        # First time seeing it! Start moving.
         if not step.get("aruco_locked"):
             step["aruco_locked"] = True
             self._step_deadline = None
-            self.serial.send_action("FORWARD")
 
-        area = detection["area"]
-        if area >= self.aruco_target_area:
+        if float(detection["area"]) >= self.aruco_target_area_px:
             self.serial.send_stop()
-            # Reset trim back to normal for next step
-            if hasattr(self.serial, "set_trim"):
-                self.serial.set_trim(self.base_trim)
-            self._current_trim = self.base_trim
-            self.step_index += 1
-            if self.step_index >= len(self._current_steps()):
-                self._complete_phase()
-            else:
-                self._start_current_step()
+            self._advance_step()
             return
-            
-        # Proportional steering
-        frame_width = frame.shape[1]
-        center_x = detection["center_x"]
-        error_x = center_x - (frame_width / 2.0)
-        
-        # P-controller for steering. A positive error (marker is to the right)
-        # requires the robot to veer right (trim negative).
-        # A negative error (marker to the left) requires veering left (trim positive).
-        kp = -0.15 
-        adjustment = int(error_x * kp)
-        
-        new_trim = self.base_trim + adjustment
-        
-        # Limit max trim so it doesn't spin out of control
-        new_trim = max(self.base_trim - 30, min(self.base_trim + 30, new_trim))
-        
-        if new_trim != self._current_trim:
-            self._current_trim = new_trim
-            if hasattr(self.serial, "set_trim"):
-                self.serial.set_trim(new_trim)
+
+        self._apply_aruco_steering(frame, detection)
+        if not self.serial.send_forward():
+            self._safe_stop("serial_command_failed")
 
 
     def _check_stall(self, progress: float) -> None:

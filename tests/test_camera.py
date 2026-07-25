@@ -45,6 +45,34 @@ def test_mjpeg_generator_produces_multipart_jpeg():
     camera.stop()
 
 
+def test_stream_client_is_released_when_generator_closes():
+    backend = FakeBackend(np.zeros((48, 64, 3), dtype=np.uint8))
+    camera = Camera(64, 48, backend=backend)
+    stream = camera.generate_mjpeg()
+
+    next(stream)
+    assert camera.get_metrics()["stream_clients"] == 1
+
+    stream.close()
+    assert camera.get_metrics()["stream_clients"] == 0
+    camera.stop()
+
+
+def test_camera_metrics_report_single_shared_capture_pipeline():
+    backend = FakeBackend(np.zeros((48, 64, 3), dtype=np.uint8))
+    camera = Camera(64, 48, fps=15, backend=backend)
+
+    camera.get_frame()
+    metrics = camera.get_metrics()
+
+    assert metrics["running"] is True
+    assert metrics["target_fps"] == 15
+    assert metrics["frame_sequence"] >= 1
+    assert metrics["frame_age_ms"] >= 0
+    assert metrics["stream_clients"] == 0
+    camera.stop()
+
+
 def test_camera_rejects_invalid_backend_frame():
     camera = Camera(64, 48, backend=FakeBackend(None))
     with pytest.raises(CameraError):
