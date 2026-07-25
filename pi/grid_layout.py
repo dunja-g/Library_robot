@@ -31,6 +31,8 @@ BOX_MARKER_IDS = {
     "3A": 4,
     "3B": 5,
 }
+# Row 2 A/B route turns are swapped to match the chassis with invert_turn enabled.
+ROW_AB_TURN_INVERT = frozenset({2})
 GRID_MARKERS = {
     HALLWAY_MARKER_ID: "Main hallway",
     1: "Row 1 aisle / box 1B",
@@ -222,6 +224,20 @@ def approach_marker_id(box_id: str) -> int:
     return box_marker_id(box_id)
 
 
+def outward_turn_for(side: str, row: int) -> str:
+    invert = row in ROW_AB_TURN_INVERT
+    if side == "A":
+        return "TURN_RIGHT" if invert else "TURN_LEFT"
+    return "TURN_LEFT" if invert else "TURN_RIGHT"
+
+
+def reverse_turn_for(side: str, row: int) -> str:
+    invert = row in ROW_AB_TURN_INVERT
+    if side == "A":
+        return "TURN_LEFT" if invert else "TURN_RIGHT"
+    return "TURN_RIGHT" if invert else "TURN_LEFT"
+
+
 def _marker_step(action: str, label: str, marker_id: int, **extra) -> dict:
     step = {
         "action": action,
@@ -291,9 +307,9 @@ def build_grid_route(
 
     row = int(box_id[0])
     side = box_id[1]
-    outward_turn = "TURN_LEFT" if side == "A" else "TURN_RIGHT"
+    outward_turn = outward_turn_for(side, row)
     return_turn = "TURN_RIGHT" if side == "A" else "TURN_LEFT"
-    reverse_turn = "TURN_RIGHT" if side == "A" else "TURN_LEFT"
+    reverse_turn = reverse_turn_for(side, row)
 
     if timed_mode:
         speed = float(geometry.forward_speed_cms)
