@@ -71,6 +71,7 @@ class NavigationConfig:
     rl_model_dir: str = ""
     rl_max_bias: int = 5
     rl_deadline_ms: float = 50.0
+    rl_invert_bias: bool = False
 
     def __post_init__(self):
         positive = {
@@ -252,5 +253,8 @@ class NavigationConfig:
             rl_max_bias=_env_number("LIBRARY_ROBOT_RL_MAX_BIAS", 5, int),
             rl_deadline_ms=_env_number(
                 "LIBRARY_ROBOT_RL_DEADLINE_MS", 50.0, float
+            ),
+            rl_invert_bias=_env_bool(
+                "LIBRARY_ROBOT_RL_INVERT_BIAS", False
             ),
         )
