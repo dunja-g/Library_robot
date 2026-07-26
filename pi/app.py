@@ -314,7 +314,7 @@ if USE_MOCK:
             return {"id": target_id, "center_x": 320, "center_y": 240, "area": 100000}
 
     mock_approach_extra_ticks, mock_approach_extra_seconds = (
-        _resolve_aruco_approach_creep(8.0)
+        _resolve_aruco_approach_creep(12.0)
     )
     controller = GridController(
         MockEncoderSerial(),
@@ -654,11 +654,6 @@ def _resolve_book(query: str):
 
 
 def _build_borrowing_plan(book: dict) -> dict:
-    return_backout_extra_cm = 0.0
-    if GRID_VISION_SOURCE == "aruco":
-        return_backout_extra_cm = float(
-            os.getenv("LIBRARY_ROBOT_ARUCO_APPROACH_EXTRA_CM", "8.0")
-        )
     plan = build_grid_route(
         book["box_id"],
         grid_geometry,
@@ -666,7 +661,6 @@ def _build_borrowing_plan(book: dict) -> dict:
         turn_source=GRID_TURN_SOURCE,
         linear_source=GRID_LINEAR_SOURCE,
         vision_source=GRID_VISION_SOURCE,
-        return_backout_extra_cm=return_backout_extra_cm,
     )
     plan.update(
         book=book["title"],

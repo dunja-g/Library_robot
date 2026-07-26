@@ -9,6 +9,7 @@ def test_defaults_are_valid_for_current_camera_and_controller():
     assert config.target_confirmation_frames == 2
     assert config.target_loss_tolerance_frames == 3
     assert config.invert_turn_direction is False
+    assert config.aruco_approach_extra_cm == 12.0
 
 
 def test_from_env_overrides_tuning_values(monkeypatch):
