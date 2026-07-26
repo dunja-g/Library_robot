@@ -88,10 +88,10 @@ def test_aruco_plan_creeps_further_without_overextending_return(
     )
 
     assert module.controller.aruco_approach_extra_ticks == (
-        module.encoder_calibration.distance_ticks(8.0)
+        module.encoder_calibration.distance_ticks(3.0)
     )
     assert module.controller.return_backout_reduction_ticks == (
-        module.encoder_calibration.distance_ticks(15.0)
+        module.encoder_calibration.distance_ticks(10.0)
     )
     assert plan["return"][0]["target_ticks"] == base_backout_ticks
 

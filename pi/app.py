@@ -320,9 +320,9 @@ if USE_MOCK:
             return {"id": target_id, "center_x": 320, "center_y": 240, "area": 100000}
 
     mock_approach_extra_ticks, mock_approach_extra_seconds = (
-        _resolve_aruco_approach_creep(8.0)
+        _resolve_aruco_approach_creep(3.0)
     )
-    mock_return_reduction_ticks, _ = _resolve_aruco_approach_creep(15.0)
+    mock_return_reduction_ticks, _ = _resolve_aruco_approach_creep(10.0)
     controller = GridController(
         MockEncoderSerial(),
         destination_dwell_seconds=0.3,

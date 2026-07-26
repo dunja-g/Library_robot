@@ -60,8 +60,8 @@ class NavigationConfig:
     aruco_candidate_max_area_px: float = 120000.0
     aruco_candidate_confirmation_frames: int = 2
     aruco_candidate_max_jump_px: float = 80.0
-    aruco_approach_extra_cm: float = 8.0
-    return_backout_reduction_cm: float = 15.0
+    aruco_approach_extra_cm: float = 3.0
+    return_backout_reduction_cm: float = 10.0
     return_obstacle_distance_cm: float = 10.0
     invert_turn_direction: bool = False
     turn_90_seconds: float = 0.8
@@ -233,10 +233,10 @@ class NavigationConfig:
                 "LIBRARY_ROBOT_ARUCO_CANDIDATE_MAX_JUMP_PX", 80.0, float
             ),
             aruco_approach_extra_cm=_env_number(
-                "LIBRARY_ROBOT_ARUCO_APPROACH_EXTRA_CM", 8.0, float
+                "LIBRARY_ROBOT_ARUCO_APPROACH_EXTRA_CM", 3.0, float
             ),
             return_backout_reduction_cm=_env_number(
-                "LIBRARY_ROBOT_RETURN_BACKOUT_REDUCTION_CM", 15.0, float
+                "LIBRARY_ROBOT_RETURN_BACKOUT_REDUCTION_CM", 10.0, float
             ),
             return_obstacle_distance_cm=_env_number(
                 "LIBRARY_ROBOT_RETURN_OBSTACLE_DISTANCE_CM", 10.0, float
