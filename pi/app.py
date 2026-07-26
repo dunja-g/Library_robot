@@ -98,19 +98,6 @@ grid_geometry = GridGeometry.from_env()
 encoder_calibration = EncoderCalibration.from_env()
 
 
-def _resolve_aruco_approach_creep(extra_cm: float) -> tuple[float, float]:
-    """Map extra inward distance to encoder ticks or a timed creep fallback."""
-    if extra_cm <= 0:
-        return 0.0, 0.0
-    try:
-        return float(encoder_calibration.distance_ticks(extra_cm)), 0.0
-    except ValueError:
-        speed = grid_geometry.forward_speed_cms
-        if speed:
-            return 0.0, round(extra_cm / float(speed), 3)
-        return 0.0, 0.0
-
-
 FUSION_ALPHA = float(os.getenv("LIBRARY_ROBOT_FUSION_ALPHA", "0.95"))
 HEADING_KP = float(os.getenv("LIBRARY_ROBOT_HEADING_KP", "1.5"))
 MAX_HEADING_CORRECTION = int(
@@ -320,10 +307,6 @@ if USE_MOCK:
         def detect_target(self, frame, target_id):
             return {"id": target_id, "center_x": 320, "center_y": 240, "area": 100000}
 
-    mock_approach_extra_ticks, mock_approach_extra_seconds = (
-        _resolve_aruco_approach_creep(0.0)
-    )
-    mock_return_reduction_ticks, _ = _resolve_aruco_approach_creep(0.0)
     controller = GridController(
         MockEncoderSerial(),
         destination_dwell_seconds=0.3,
@@ -337,9 +320,6 @@ if USE_MOCK:
         aruco_align_pulse_seconds=0.2,
         aruco_align_settle_seconds=2.0,
         aruco_align_fine_pulse_seconds=0.12,
-        aruco_approach_extra_ticks=mock_approach_extra_ticks,
-        aruco_approach_extra_seconds=mock_approach_extra_seconds,
-        return_backout_reduction_ticks=mock_return_reduction_ticks,
     )
     
     # Mock clock to advance rapidly so timed steps finish instantly in tests
@@ -406,12 +386,6 @@ else:
             candidate_min_area_px=config.aruco_candidate_min_area_px,
             candidate_max_area_px=config.aruco_candidate_max_area_px,
         )
-    approach_extra_ticks, approach_extra_seconds = _resolve_aruco_approach_creep(
-        config.aruco_approach_extra_cm
-    )
-    return_reduction_ticks, _ = _resolve_aruco_approach_creep(
-        config.return_backout_reduction_cm
-    )
     controller = GridController(
         serial_bridge,
         obstacle_distance_cm=config.obstacle_distance_cm,
@@ -440,9 +414,6 @@ else:
             config.aruco_candidate_confirmation_frames
         ),
         aruco_candidate_max_jump_px=config.aruco_candidate_max_jump_px,
-        aruco_approach_extra_ticks=approach_extra_ticks,
-        aruco_approach_extra_seconds=approach_extra_seconds,
-        return_backout_reduction_ticks=return_reduction_ticks,
         return_obstacle_distance_cm=config.return_obstacle_distance_cm,
         invert_turn_direction=config.invert_turn_direction,
         base_trim=base_trim,

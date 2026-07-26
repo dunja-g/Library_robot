@@ -79,19 +79,14 @@ def test_all_rows_use_box_markers_and_semantic_turn_directions():
         assert route_b["return"][1]["action"] == "TURN_LEFT"
 
 
-def test_return_backout_includes_approach_extra_distance():
+def test_return_backout_matches_approach_without_offset():
     geometry = GridGeometry(80, 75, 35)
     calibration = EncoderCalibration(10, 420, 840)
-    base = build_grid_route("1A", geometry, calibration, turn_source="imu")
-    extended = build_grid_route(
-        "1A",
-        geometry,
-        calibration,
-        turn_source="imu",
-        return_backout_extra_cm=8.0,
-    )
-    assert extended["return"][0]["target_ticks"] > base["return"][0]["target_ticks"]
-    assert extended["return"][0]["track_aruco_id"] == 6
+    route = build_grid_route("1A", geometry, calibration, turn_source="imu")
+
+    assert route["outbound"][-1]["target_ticks"] == 350
+    assert route["return"][0]["target_ticks"] == 350
+    assert route["return"][0]["track_aruco_id"] == 6
 
 
 def test_a_and_b_use_mirrored_turns():

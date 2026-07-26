@@ -65,9 +65,6 @@ class GridController:
         aruco_candidate_confirmation_frames: int = 2,
         aruco_candidate_max_jump_px: float = 80.0,
         return_obstacle_distance_cm: float = 10.0,
-        aruco_approach_extra_ticks: float = 0.0,
-        aruco_approach_extra_seconds: float = 0.0,
-        return_backout_reduction_ticks: float = 0.0,
         invert_turn_direction: bool = False,
         base_trim: int = 15,
         aruco_steering_kp: float = -0.15,
@@ -107,12 +104,6 @@ class GridController:
             )
         if aruco_candidate_max_jump_px <= 0:
             raise ValueError("aruco_candidate_max_jump_px must be positive")
-        if aruco_approach_extra_ticks < 0:
-            raise ValueError("aruco_approach_extra_ticks must be non-negative")
-        if aruco_approach_extra_seconds < 0:
-            raise ValueError("aruco_approach_extra_seconds must be non-negative")
-        if return_backout_reduction_ticks < 0:
-            raise ValueError("return_backout_reduction_ticks must be non-negative")
         if return_obstacle_distance_cm <= 0:
             raise ValueError("return_obstacle_distance_cm must be positive")
         self.serial = serial_bridge
@@ -139,11 +130,6 @@ class GridController:
             aruco_candidate_confirmation_frames
         )
         self.aruco_candidate_max_jump_px = float(aruco_candidate_max_jump_px)
-        self.aruco_approach_extra_ticks = float(aruco_approach_extra_ticks)
-        self.aruco_approach_extra_seconds = float(aruco_approach_extra_seconds)
-        self.return_backout_reduction_ticks = float(
-            return_backout_reduction_ticks
-        )
         self.return_obstacle_distance_cm = float(return_obstacle_distance_cm)
         self.invert_turn_direction = bool(invert_turn_direction)
         self.base_trim = int(base_trim)
@@ -1019,14 +1005,7 @@ class GridController:
         progress, _ = progress_values
         step["aruco_approach_ticks_before_creep"] = progress
         base_target_ticks = float(step.get("target_ticks", 0.0))
-        planned_target_ticks = (
-            base_target_ticks + self.aruco_approach_extra_ticks
-            if base_target_ticks > 0
-            else 0.0
-        )
-        creep_target_ticks = self.aruco_approach_extra_ticks
-        if planned_target_ticks > 0:
-            creep_target_ticks = max(0.0, planned_target_ticks - progress)
+        creep_target_ticks = max(0.0, base_target_ticks - progress)
         if creep_target_ticks > 0:
             if not self.serial.reset_encoders():
                 self._safe_stop("encoder_reset_failed")
@@ -1036,14 +1015,6 @@ class GridController:
             self._last_progress_ticks = 0.0
             self._last_progress_at = self._clock()
             self._latest_encoders = {"left": 0, "right": 0}
-            if not self.serial.send_forward():
-                self._safe_stop("serial_command_failed")
-            return
-        if self.aruco_approach_extra_seconds > 0:
-            step["aruco_creep_active"] = True
-            step["aruco_creep_deadline"] = (
-                self._clock() + self.aruco_approach_extra_seconds
-            )
             if not self.serial.send_forward():
                 self._safe_stop("serial_command_failed")
             return
@@ -1076,11 +1047,7 @@ class GridController:
         )
         return_step["target_ticks"] = max(
             0,
-            round(
-                approach_ticks
-                + float(creep_progress_ticks)
-                - self.return_backout_reduction_ticks
-            ),
+            round(approach_ticks + float(creep_progress_ticks)),
         )
         return_step["measured_from_outbound"] = True
 
@@ -1120,11 +1087,7 @@ class GridController:
             self._step_aruco_approach_creep(step)
             return
         base_target_ticks = float(step.get("target_ticks", 0.0))
-        planned_target_ticks = (
-            base_target_ticks + self.aruco_approach_extra_ticks
-            if base_target_ticks > 0
-            else 0.0
-        )
+        planned_target_ticks = base_target_ticks
         if planned_target_ticks > 0:
             progress_values = self._read_encoder_progress()
             if progress_values is None:

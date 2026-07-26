@@ -113,8 +113,6 @@ LIBRARY_ROBOT_GRID_COLUMN_SPACING_CM=74
 LIBRARY_ROBOT_GRID_APPROACH_CM=32
 LIBRARY_ROBOT_GRID_OUTBOUND_TURN_DEGREES=90
 LIBRARY_ROBOT_GRID_RETURN_TURN_DEGREES=90
-LIBRARY_ROBOT_ARUCO_APPROACH_EXTRA_CM=0
-LIBRARY_ROBOT_RETURN_BACKOUT_REDUCTION_CM=0
 LIBRARY_ROBOT_ENCODER_TICKS_PER_CM=
 LIBRARY_ROBOT_ENCODER_TICKS_PER_REV=4
 LIBRARY_ROBOT_WHEEL_DIAMETER_CM=6.5
@@ -138,10 +136,6 @@ LIBRARY_ROBOT_MAX_HEADING_CORRECTION=30
   clearance before the 37 cm column centre.
 - `GRID_OUTBOUND_TURN_DEGREES` / `GRID_RETURN_TURN_DEGREES`: independently
   tunable IMU turn targets. Both start at 90 degrees.
-- `ARUCO_APPROACH_EXTRA_CM`: additional inward travel after the measured
-  centre-aisle-to-column distance.
-- `RETURN_BACKOUT_REDUCTION_CM`: distance intentionally retained inside the
-  aisle before the reverse turn, compensating the observed return overshoot.
 - `GRID_LINEAR_SOURCE=encoder`: straight outbound and reverse-return segments
   stop from encoder distance. Select `timed` only for deliberate bench tests.
 - `AUTO_RETURN=true`: after the configured destination dwell, begin the

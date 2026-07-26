@@ -60,8 +60,6 @@ class NavigationConfig:
     aruco_candidate_max_area_px: float = 120000.0
     aruco_candidate_confirmation_frames: int = 2
     aruco_candidate_max_jump_px: float = 80.0
-    aruco_approach_extra_cm: float = 0.0
-    return_backout_reduction_cm: float = 0.0
     return_obstacle_distance_cm: float = 10.0
     invert_turn_direction: bool = False
     turn_90_seconds: float = 0.8
@@ -131,10 +129,6 @@ class NavigationConfig:
             )
         if self.aruco_candidate_max_jump_px <= 0:
             raise ValueError("aruco_candidate_max_jump_px must be positive")
-        if self.aruco_approach_extra_cm < 0:
-            raise ValueError("aruco_approach_extra_cm must be non-negative")
-        if self.return_backout_reduction_cm < 0:
-            raise ValueError("return_backout_reduction_cm must be non-negative")
         if self.return_obstacle_distance_cm <= 0:
             raise ValueError("return_obstacle_distance_cm must be positive")
         if self.destination_dwell_seconds < 0:
@@ -231,12 +225,6 @@ class NavigationConfig:
             ),
             aruco_candidate_max_jump_px=_env_number(
                 "LIBRARY_ROBOT_ARUCO_CANDIDATE_MAX_JUMP_PX", 80.0, float
-            ),
-            aruco_approach_extra_cm=_env_number(
-                "LIBRARY_ROBOT_ARUCO_APPROACH_EXTRA_CM", 0.0, float
-            ),
-            return_backout_reduction_cm=_env_number(
-                "LIBRARY_ROBOT_RETURN_BACKOUT_REDUCTION_CM", 0.0, float
             ),
             return_obstacle_distance_cm=_env_number(
                 "LIBRARY_ROBOT_RETURN_OBSTACLE_DISTANCE_CM", 10.0, float

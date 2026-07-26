@@ -76,9 +76,7 @@ def test_auto_return_setting_controls_pickup_confirmation(monkeypatch, tmp_path)
     assert plan["pickup_confirmation_required"] is True
 
 
-def test_aruco_plan_creeps_further_without_overextending_return(
-    monkeypatch, tmp_path
-):
+def test_aruco_plan_has_equal_approach_and_return_distances(monkeypatch, tmp_path):
     monkeypatch.setenv("LIBRARY_ROBOT_GRID_VISION_SOURCE", "aruco")
     module, _client = load_mock_app(monkeypatch, tmp_path)
 
@@ -87,12 +85,7 @@ def test_aruco_plan_creeps_further_without_overextending_return(
         float(module.grid_geometry.box_approach_distance_cm)
     )
 
-    assert module.controller.aruco_approach_extra_ticks == (
-        0.0
-    )
-    assert module.controller.return_backout_reduction_ticks == (
-        0.0
-    )
+    assert plan["outbound"][-1]["target_ticks"] == base_backout_ticks
     assert plan["return"][0]["target_ticks"] == base_backout_ticks
 
 

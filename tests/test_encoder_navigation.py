@@ -802,13 +802,11 @@ def test_aruco_approach_creeps_forward_after_target_area():
         frame_provider=lambda: frame,
         aruco_detector=CenteredArucoDetector(),
         aruco_target_area_px=8000.0,
-        aruco_approach_extra_ticks=12.0,
-        return_backout_reduction_ticks=3.0,
         alignment_confirmation_frames=1,
     )
     plan = build_grid_route(
         "1A",
-        GridGeometry(10, 10, 5),
+        GridGeometry(10, 10, 17),
         EncoderCalibration(1, 4, 8),
         turn_source="imu",
     )
@@ -826,7 +824,7 @@ def test_aruco_approach_creeps_forward_after_target_area():
     controller.step()
     assert serial.commands[-1] == "STOP"
     assert controller.get_state() == GridState.ARRIVED.value
-    assert controller.plan["return"][0]["target_ticks"] == 14
+    assert controller.plan["return"][0]["target_ticks"] == 17
     assert controller.plan["return"][0]["measured_from_outbound"] is True
 
 
