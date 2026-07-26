@@ -57,10 +57,10 @@ For a destination such as `3B`, the generated route is:
 7. Reverse the measured row distance back and enter `DOCKED`.
 
 In ArUco mode, vision keeps the robot aimed at the shelf marker while the
-encoder target enforces the measured 37 cm centre-aisle-to-column distance
-with no additional inward offset. The controller records the complete
-approach and shortens the first return by the configured 3 cm field offset,
-preventing the chassis from reversing too far.
+encoder target stops at 32 cm, 5 cm before the measured 37 cm
+centre-aisle-to-column centre distance. Distance completion uses average
+left/right wheel travel, so steering corrections no longer make one row run
+farther than another. Return uses the same measured chassis-centre distance.
 
 The A route mirrors the B route. Route execution is non-blocking. All three
 ultrasonic data is validated during every moving or turning iteration.
@@ -109,11 +109,12 @@ Do not enable real grid movement until the layout and fused odometry are measure
 LIBRARY_ROBOT_NAVIGATION_MODE=grid
 LIBRARY_ROBOT_GRID_FIRST_ROW_CM=36
 LIBRARY_ROBOT_GRID_ROW_SPACING_CM=57
-LIBRARY_ROBOT_GRID_APPROACH_CM=37
+LIBRARY_ROBOT_GRID_COLUMN_SPACING_CM=74
+LIBRARY_ROBOT_GRID_APPROACH_CM=32
 LIBRARY_ROBOT_GRID_OUTBOUND_TURN_DEGREES=90
 LIBRARY_ROBOT_GRID_RETURN_TURN_DEGREES=90
 LIBRARY_ROBOT_ARUCO_APPROACH_EXTRA_CM=0
-LIBRARY_ROBOT_RETURN_BACKOUT_REDUCTION_CM=3
+LIBRARY_ROBOT_RETURN_BACKOUT_REDUCTION_CM=0
 LIBRARY_ROBOT_ENCODER_TICKS_PER_CM=
 LIBRARY_ROBOT_ENCODER_TICKS_PER_REV=4
 LIBRARY_ROBOT_WHEEL_DIAMETER_CM=6.5
@@ -132,8 +133,9 @@ LIBRARY_ROBOT_MAX_HEADING_CORRECTION=30
 
 - `GRID_FIRST_ROW_CM`: Dock reference line to the turn centre of row 1.
 - `GRID_ROW_SPACING_CM`: centre-to-centre distance between adjacent rows.
-- `GRID_APPROACH_CM`: centre aisle to the safe stop point at a box. The
-  measured 74 cm between column centres gives 37 cm to either side.
+- `GRID_COLUMN_SPACING_CM`: measured 74 cm between column centres.
+- `GRID_APPROACH_CM`: 32 cm safe-stop travel after turning, leaving 5 cm
+  clearance before the 37 cm column centre.
 - `GRID_OUTBOUND_TURN_DEGREES` / `GRID_RETURN_TURN_DEGREES`: independently
   tunable IMU turn targets. Both start at 90 degrees.
 - `ARUCO_APPROACH_EXTRA_CM`: additional inward travel after the measured

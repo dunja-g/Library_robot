@@ -12,6 +12,9 @@ from typing import Any
 import numpy as np
 
 
+MIN_WHEEL_COMPLETION_RATIO = 0.5
+
+
 class GridState(str, Enum):
     IDLE = "IDLE"
     MOVING = "MOVING"
@@ -251,9 +254,8 @@ class GridController:
             target_ticks = float(step.get("target_ticks", 0.0)) if step else 0.0
             encoder_progress = 0.0
             if self._latest_encoders:
-                encoder_progress = min(
-                    abs(float(self._latest_encoders["left"])),
-                    abs(float(self._latest_encoders["right"])),
+                encoder_progress, _ = self._encoder_progress_values(
+                    self._latest_encoders
                 )
             if self.state == GridState.TURNING and self.turn_source == "imu":
                 segment_progress = 50 if self._latest_turn_status == "ACTIVE" else 0
@@ -409,13 +411,12 @@ class GridController:
                 self._latest_encoders = dict(encoders)
                 if odometry is not None:
                     self._latest_odometry = dict(odometry)
-                # Require both drivetrain sides to progress. Using an average
-                # could hide one stalled wheel while the other keeps counting.
-                progress = min(
-                    abs(float(encoders["left"])),
-                    abs(float(encoders["right"])),
-                )
-                if progress >= float(step["target_ticks"]):
+                progress, slow_progress = self._encoder_progress_values(encoders)
+                target_ticks = float(step["target_ticks"])
+                if (
+                    progress >= target_ticks
+                    and slow_progress >= target_ticks * MIN_WHEEL_COMPLETION_RATIO
+                ):
                     self.serial.send_stop()
                     self.step_index += 1
                     if self.step_index >= len(self._current_steps()):
@@ -423,7 +424,9 @@ class GridController:
                     else:
                         self._start_current_step()
                     return
-                self._check_stall(progress)
+                # Completion follows chassis-centre distance, while the slower
+                # wheel still drives stall detection.
+                self._check_stall(slow_progress)
                 if self.state != GridState.STOPPED:
                     self._maybe_apply_aruco_tracking(step)
                     self._send_action(step["action"])
@@ -981,11 +984,11 @@ class GridController:
         self._latest_encoders = dict(encoders)
         if odometry is not None:
             self._latest_odometry = dict(odometry)
-        progress = min(
-            abs(float(encoders["left"])),
-            abs(float(encoders["right"])),
-        )
-        if progress >= target_ticks:
+        progress, slow_progress = self._encoder_progress_values(encoders)
+        if (
+            progress >= target_ticks
+            and slow_progress >= target_ticks * MIN_WHEEL_COMPLETION_RATIO
+        ):
             self.serial.send_stop()
             self._step_deadline = None
             self._advance_step()
@@ -1001,7 +1004,7 @@ class GridController:
         elif self._step_deadline and self._clock() > self._step_deadline:
             step["aruco_locked"] = True
             self._step_deadline = None
-        self._check_stall(progress)
+        self._check_stall(slow_progress)
         if self.state != GridState.STOPPED:
             if not self.serial.send_forward():
                 self._safe_stop("serial_command_failed")
@@ -1010,9 +1013,10 @@ class GridController:
         """Drive a little further inward after the marker fills the target area."""
         self._reset_aruco_trim()
         self.serial.send_stop()
-        progress = self._read_encoder_progress()
-        if progress is None:
+        progress_values = self._read_encoder_progress()
+        if progress_values is None:
             return
+        progress, _ = progress_values
         step["aruco_approach_ticks_before_creep"] = progress
         base_target_ticks = float(step.get("target_ticks", 0.0))
         planned_target_ticks = (
@@ -1046,7 +1050,7 @@ class GridController:
         self._sync_return_backout_to_approach(step, progress)
         self._advance_step()
 
-    def _read_encoder_progress(self) -> float | None:
+    def _read_encoder_progress(self) -> tuple[float, float] | None:
         get_odometry = getattr(self.serial, "get_odometry", None)
         odometry = get_odometry() if callable(get_odometry) else None
         encoders = odometry if odometry is not None else self.serial.get_encoders()
@@ -1056,10 +1060,7 @@ class GridController:
         self._latest_encoders = dict(encoders)
         if odometry is not None:
             self._latest_odometry = dict(odometry)
-        return min(
-            abs(float(encoders["left"])),
-            abs(float(encoders["right"])),
-        )
+        return self._encoder_progress_values(encoders)
 
     def _sync_return_backout_to_approach(
         self, step: dict, creep_progress_ticks: float
@@ -1095,10 +1096,14 @@ class GridController:
             return
 
         target_ticks = float(step.get("aruco_creep_target_ticks", 0.0))
-        progress = self._read_encoder_progress()
-        if progress is None:
+        progress_values = self._read_encoder_progress()
+        if progress_values is None:
             return
-        if progress >= target_ticks:
+        progress, slow_progress = progress_values
+        if (
+            progress >= target_ticks
+            and slow_progress >= target_ticks * MIN_WHEEL_COMPLETION_RATIO
+        ):
             self.serial.send_stop()
             self._sync_return_backout_to_approach(step, progress)
             self._advance_step()
@@ -1121,10 +1126,15 @@ class GridController:
             else 0.0
         )
         if planned_target_ticks > 0:
-            progress = self._read_encoder_progress()
-            if progress is None:
+            progress_values = self._read_encoder_progress()
+            if progress_values is None:
                 return
-            if progress >= planned_target_ticks:
+            progress, slow_progress = progress_values
+            if (
+                progress >= planned_target_ticks
+                and slow_progress
+                >= planned_target_ticks * MIN_WHEEL_COMPLETION_RATIO
+            ):
                 self.serial.send_stop()
                 self._sync_return_backout_to_approach(step, progress)
                 self._advance_step()
@@ -1227,6 +1237,12 @@ class GridController:
                 self._safe_stop(f"{direction}_obstacle")
                 return False
         return True
+
+    @staticmethod
+    def _encoder_progress_values(readings: dict) -> tuple[float, float]:
+        left = abs(float(readings["left"]))
+        right = abs(float(readings["right"]))
+        return (left + right) / 2.0, min(left, right)
 
     @staticmethod
     def _valid_encoders(readings: Any) -> bool:

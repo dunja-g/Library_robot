@@ -86,6 +86,17 @@ def test_full_encoder_route_reaches_box_then_dock():
     assert controller.get_status()["reason"] == "dock_reached"
 
 
+def test_linear_distance_uses_average_wheel_progress():
+    controller, serial, _clock = make_controller()
+
+    serial.encoders = {"left": 8, "right": 12}
+    controller.step()
+
+    assert controller.step_index == 1
+    assert controller.get_status()["current_action"] == "TURN_LEFT"
+    assert "STOP" in serial.commands
+
+
 def test_obstacle_stops_before_encoder_motion_continues():
     controller, serial, _clock = make_controller()
     serial.ultrasonic["center"] = 10
@@ -838,7 +849,7 @@ def test_aruco_approach_never_exceeds_the_measured_shelf_distance():
     )
     plan = build_grid_route(
         "1A",
-        GridGeometry(10, 10, 17),
+        GridGeometry(10, 10, 6),
         EncoderCalibration(1, 4, 8),
         turn_source="imu",
     )
@@ -846,11 +857,11 @@ def test_aruco_approach_never_exceeds_the_measured_shelf_distance():
     controller.step_index = 4
     controller._start_current_step()
 
-    serial.encoders = {"left": 17, "right": 17}
+    serial.encoders = {"left": 5, "right": 7}
     controller.step()
 
     assert controller.get_state() == GridState.ARRIVED.value
-    assert controller.plan["return"][0]["target_ticks"] == 17
+    assert controller.plan["return"][0]["target_ticks"] == 6
     assert serial.commands[-1] == "STOP"
 
 

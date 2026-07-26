@@ -54,7 +54,7 @@ def test_app_is_fixed_grid_only_and_lists_numbered_books(monkeypatch, tmp_path):
     assert mode["grid_geometry_cm"] == {
         "first_row": 36,
         "row_spacing": 57,
-        "approach": 37,
+        "approach": 32,
         "column_spacing": 74,
         "outbound_turn_degrees": 90,
         "return_turn_degrees": 90,
@@ -91,7 +91,7 @@ def test_aruco_plan_creeps_further_without_overextending_return(
         0.0
     )
     assert module.controller.return_backout_reduction_ticks == (
-        module.encoder_calibration.distance_ticks(3.0)
+        0.0
     )
     assert plan["return"][0]["target_ticks"] == base_backout_ticks
 

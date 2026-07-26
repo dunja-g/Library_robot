@@ -72,6 +72,7 @@ class GridGeometry:
     forward_speed_cms: float | None = None  # cm/s for timed driving (no encoder)
     outbound_turn_degrees: float | None = None
     return_turn_degrees: float | None = None
+    column_spacing_cm: float | None = None
 
     def __post_init__(self):
         for name, value in (
@@ -81,6 +82,7 @@ class GridGeometry:
             ("forward_speed_cms", self.forward_speed_cms),
             ("outbound_turn_degrees", self.outbound_turn_degrees),
             ("return_turn_degrees", self.return_turn_degrees),
+            ("column_spacing_cm", self.column_spacing_cm),
         ):
             if value is not None and value <= 0:
                 raise ValueError(f"{name} must be positive")
@@ -105,6 +107,9 @@ class GridGeometry:
             ),
             return_turn_degrees=_optional_env_float(
                 "LIBRARY_ROBOT_GRID_RETURN_TURN_DEGREES"
+            ),
+            column_spacing_cm=_optional_env_float(
+                "LIBRARY_ROBOT_GRID_COLUMN_SPACING_CM"
             ),
         )
 

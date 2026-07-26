@@ -312,6 +312,7 @@ if USE_MOCK:
             37,
             outbound_turn_degrees=90,
             return_turn_degrees=90,
+            column_spacing_cm=74,
         )
     mock_frame = np.zeros((480, 640, 3), dtype=np.uint8)
 
@@ -322,7 +323,7 @@ if USE_MOCK:
     mock_approach_extra_ticks, mock_approach_extra_seconds = (
         _resolve_aruco_approach_creep(0.0)
     )
-    mock_return_reduction_ticks, _ = _resolve_aruco_approach_creep(3.0)
+    mock_return_reduction_ticks, _ = _resolve_aruco_approach_creep(0.0)
     controller = GridController(
         MockEncoderSerial(),
         destination_dwell_seconds=0.3,
@@ -636,9 +637,7 @@ def navigation_mode():
                 "row_spacing": grid_geometry.row_spacing_cm,
                 "approach": grid_geometry.box_approach_distance_cm,
                 "column_spacing": (
-                    None
-                    if grid_geometry.box_approach_distance_cm is None
-                    else 2 * float(grid_geometry.box_approach_distance_cm)
+                    grid_geometry.column_spacing_cm
                 ),
                 "outbound_turn_degrees": grid_geometry.outbound_turn_degrees,
                 "return_turn_degrees": grid_geometry.return_turn_degrees,
