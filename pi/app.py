@@ -395,6 +395,7 @@ else:
             clahe_tile_grid=config.aruco_clahe_tile_grid,
             upscale_factor=config.aruco_upscale_factor,
             candidate_min_area_px=config.aruco_candidate_min_area_px,
+            candidate_max_area_px=config.aruco_candidate_max_area_px,
         )
     approach_extra_ticks, approach_extra_seconds = _resolve_aruco_approach_creep(
         config.aruco_approach_extra_cm
@@ -421,7 +422,12 @@ else:
         aruco_align_max_search_pulses=config.aruco_align_max_search_pulses,
         aruco_align_max_reacquire_pulses=config.aruco_align_max_reacquire_pulses,
         aruco_align_invert_turn=config.aruco_align_invert_turn,
+        aruco_steering_kp=config.aruco_steering_kp,
         aruco_track_candidates=config.aruco_track_candidates,
+        aruco_candidate_confirmation_frames=(
+            config.aruco_candidate_confirmation_frames
+        ),
+        aruco_candidate_max_jump_px=config.aruco_candidate_max_jump_px,
         aruco_approach_extra_ticks=approach_extra_ticks,
         aruco_approach_extra_seconds=approach_extra_seconds,
         return_obstacle_distance_cm=config.return_obstacle_distance_cm,
@@ -462,6 +468,9 @@ elif rl_adapter.mode != "disabled":
         rl_adapter.mode,
         rl_adapter.model_dir,
     )
+    rl_adapter.start()
+
+atexit.register(rl_adapter.stop)
 
 
 def _cancel_pending_mission(reason: str) -> bool:
@@ -534,7 +543,7 @@ def _control_loop():
             logger.exception("Robot control loop failed; controller stopped safely")
         if rl_adapter.mode != "disabled":
             try:
-                rl_adapter.step_from_status(controller.get_status())
+                rl_adapter.submit_status(controller.get_status())
             except Exception:
                 logger.exception("RL steering assist failed; navigation continues")
         _reconcile_borrowing_state()

@@ -409,6 +409,32 @@ def test_aruco_align_turns_toward_marker_despite_route_turn_inversion():
     assert serial.commands[-1] == "ROTATE_RIGHT"
 
 
+def test_aruco_align_inversion_is_independent_of_route_turn_inversion():
+    serial, clock = FakeSerial(), FakeClock()
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    controller = GridController(
+        serial,
+        clock=clock,
+        frame_provider=lambda: frame,
+        aruco_detector=OffCenterArucoDetector(),
+        alignment_confirmation_frames=1,
+        invert_turn_direction=False,
+        aruco_align_invert_turn=True,
+    )
+    plan = build_grid_route(
+        "1A",
+        GridGeometry(10, 10, 5),
+        EncoderCalibration(1, 4, 8),
+        turn_source="imu",
+    )
+    controller.request_grid_mission(plan)
+
+    finish_align_settle(controller, clock)
+    controller.step()
+
+    assert serial.commands[-1] == "ROTATE_LEFT"
+
+
 class UndecodableCandidateDetector:
     """Never decodes an ID but always reports a quad right of centre."""
 
@@ -443,10 +469,83 @@ def test_aruco_align_steers_toward_an_undecodable_code():
     controller.request_grid_mission(plan)
 
     finish_align_settle(controller, clock)
+    assert serial.commands[-1] == "STOP"
+    finish_align_fine_settle(controller, clock)
 
     assert serial.commands[-1] == "ROTATE_RIGHT"
     assert controller._align_pulse_deadline is not None
     assert controller._align_search_total == 0
+
+
+class CenteredUndecodableCandidateDetector(UndecodableCandidateDetector):
+    def detect_candidates(self, frame):
+        return [{"center_x": 320, "center_y": 240, "area": 12000}]
+
+
+def test_centered_undecodable_candidate_holds_still_and_keeps_decoding():
+    serial, clock = FakeSerial(), FakeClock()
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    controller = GridController(
+        serial,
+        clock=clock,
+        frame_provider=lambda: frame,
+        aruco_detector=CenteredUndecodableCandidateDetector(),
+        alignment_confirmation_frames=1,
+        invert_turn_direction=False,
+    )
+    plan = build_grid_route(
+        "1A",
+        GridGeometry(10, 10, 5),
+        EncoderCalibration(1, 4, 8),
+        turn_source="imu",
+    )
+    controller.request_grid_mission(plan)
+
+    finish_align_settle(controller, clock)
+    finish_align_fine_settle(controller, clock)
+    finish_align_fine_settle(controller, clock)
+
+    assert serial.commands[-1] == "STOP"
+    assert not any(command.startswith("ROTATE") for command in serial.commands)
+    assert controller.get_status()["current_action"] == "ARUCO_ALIGN"
+
+
+class JumpingCandidateDetector(UndecodableCandidateDetector):
+    def __init__(self):
+        self.calls = 0
+
+    def detect_candidates(self, frame):
+        self.calls += 1
+        center_x = 500 if self.calls == 1 else 600
+        return [{"center_x": center_x, "center_y": 240, "area": 12000}]
+
+
+def test_candidate_position_jump_is_not_confirmed_as_the_same_hint():
+    serial, clock = FakeSerial(), FakeClock()
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    controller = GridController(
+        serial,
+        clock=clock,
+        frame_provider=lambda: frame,
+        aruco_detector=JumpingCandidateDetector(),
+        alignment_confirmation_frames=1,
+        aruco_candidate_max_jump_px=50,
+        invert_turn_direction=False,
+    )
+    plan = build_grid_route(
+        "1A",
+        GridGeometry(10, 10, 5),
+        EncoderCalibration(1, 4, 8),
+        turn_source="imu",
+    )
+    controller.request_grid_mission(plan)
+
+    finish_align_settle(controller, clock)
+    assert serial.commands[-1] == "STOP"
+    finish_align_fine_settle(controller, clock)
+
+    assert serial.commands[-1] == "ROTATE_LEFT"
+    assert controller._align_search_total == 1
 
 
 def test_candidate_tracking_can_be_disabled():
@@ -744,6 +843,41 @@ def test_encoder_forward_applies_soft_aruco_tracking():
     controller.step()
     assert serial.commands[-1] == "FORWARD"
     assert any(command.startswith("TRIM=") for command in serial.commands)
+
+
+def test_soft_aruco_tracking_direction_has_independent_kp():
+    class TrackingSerial(FakeSerial):
+        def set_trim(self, value):
+            self.commands.append(f"TRIM={value}")
+            return True
+
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    negative_serial = TrackingSerial()
+    positive_serial = TrackingSerial()
+    negative = GridController(
+        negative_serial,
+        frame_provider=lambda: frame,
+        aruco_detector=OffCenterArucoDetector(),
+        base_trim=15,
+        aruco_steering_kp=-0.15,
+    )
+    positive = GridController(
+        positive_serial,
+        frame_provider=lambda: frame,
+        aruco_detector=OffCenterArucoDetector(),
+        base_trim=15,
+        aruco_steering_kp=0.15,
+    )
+
+    negative._apply_aruco_steering(
+        frame, OffCenterArucoDetector().detect_target(frame, 1)
+    )
+    positive._apply_aruco_steering(
+        frame, OffCenterArucoDetector().detect_target(frame, 1)
+    )
+
+    assert negative_serial.commands == ["TRIM=3"]
+    assert positive_serial.commands == ["TRIM=27"]
 
 
 def test_aruco_hybrid_route_completes_with_mock_vision():
