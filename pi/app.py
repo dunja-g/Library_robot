@@ -296,7 +296,7 @@ if USE_MOCK:
         grid_geometry = GridGeometry(
             36,
             57,
-            37,
+            32,
             outbound_turn_degrees=90,
             return_turn_degrees=90,
             column_spacing_cm=74,
