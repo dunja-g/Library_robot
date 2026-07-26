@@ -379,7 +379,6 @@ def build_grid_route(
         hallway = dict(hallway_step)
         hallway["track_aruco_id"] = HALLWAY_MARKER_ID
         return_escape = dict(return_route[0])
-        return_escape["match_entry_ultrasonic"] = True
         return_dock = dict(return_route[2])
         return_route = [
             return_escape,

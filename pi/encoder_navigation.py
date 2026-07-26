@@ -13,10 +13,6 @@ import numpy as np
 
 
 MIN_WHEEL_COMPLETION_RATIO = 0.5
-RETURN_ULTRASONIC_CONFIRMATION_FRAMES = 2
-RETURN_ULTRASONIC_MIN_DEPARTURE_CM = 3.0
-RETURN_ULTRASONIC_MAX_OVERSHOOT_CM = 15.0
-RETURN_ULTRASONIC_MAX_TRAVEL_RATIO = 1.35
 
 
 class GridState(str, Enum):
@@ -170,9 +166,6 @@ class GridController:
         self._candidate_last_center: tuple[float, float] | None = None
         self._candidate_stable_frames: int = 0
         self._align_last_target_center: tuple[float, float] | None = None
-        self._return_ultrasonic_active = False
-        self._return_ultrasonic_match_frames = 0
-        self._return_ultrasonic_max_deadline: float | None = None
 
     def request_grid_mission(self, plan: dict) -> None:
         if not plan.get("outbound") or not plan.get("return"):
@@ -236,15 +229,6 @@ class GridController:
                 "return_actions": []
                 if self.plan is None
                 else [item["action"] for item in self.plan["return"]],
-                "shelf_entry_ultrasonic_cm": (
-                    None
-                    if self.plan is None
-                    else self.plan.get("shelf_entry_ultrasonic_cm")
-                ),
-                "return_ultrasonic_active": self._return_ultrasonic_active,
-                "return_ultrasonic_match_frames": (
-                    self._return_ultrasonic_match_frames
-                ),
             }
             step = self._current_step()
             if step:
@@ -415,14 +399,9 @@ class GridController:
                     self._latest_odometry = dict(odometry)
                 progress, slow_progress = self._encoder_progress_values(encoders)
                 target_ticks = float(step["target_ticks"])
-                ultrasonic_state = self._return_ultrasonic_state(step)
-                encoder_complete = (
+                if (
                     progress >= target_ticks
                     and slow_progress >= target_ticks * MIN_WHEEL_COMPLETION_RATIO
-                )
-                if ultrasonic_state == "reached" or (
-                    ultrasonic_state in {"disabled", "waiting"}
-                    and encoder_complete
                 ):
                     self.serial.send_stop()
                     self.step_index += 1
@@ -430,21 +409,6 @@ class GridController:
                         self._complete_phase()
                     else:
                         self._start_current_step()
-                    return
-                if (
-                    ultrasonic_state == "tracking"
-                    and progress
-                    >= target_ticks * RETURN_ULTRASONIC_MAX_TRAVEL_RATIO
-                ):
-                    self._safe_stop("return_ultrasonic_target_not_reached")
-                    return
-                if ultrasonic_state == "confirming":
-                    # Freeze at the first matching reading; confirm while
-                    # stationary so another 100 ms of reverse cannot overshoot.
-                    self.serial.send_stop()
-                    return
-                if ultrasonic_state == "invalid_after_match":
-                    self._safe_stop("return_ultrasonic_unavailable")
                     return
                 # Completion follows chassis-centre distance, while the slower
                 # wheel still drives stall detection.
@@ -477,9 +441,6 @@ class GridController:
         step.pop("aruco_approach_ticks_before_creep", None)
         self._aligned_frames = 0
         self._target_missing_frames = 0
-        self._return_ultrasonic_active = False
-        self._return_ultrasonic_match_frames = 0
-        self._return_ultrasonic_max_deadline = None
         action = step["action"]
         if action == "ARUCO_ALIGN":
             self._align_pulse_deadline = None
@@ -535,11 +496,6 @@ class GridController:
             self._latest_encoders = {"left": 0, "right": 0}
             self._latest_odometry = None
             self._step_deadline = self._clock() + step["target_seconds"]
-            if step.get("match_entry_ultrasonic"):
-                self._return_ultrasonic_max_deadline = self._clock() + (
-                    float(step["target_seconds"])
-                    * RETURN_ULTRASONIC_MAX_TRAVEL_RATIO
-                )
             self.state = GridState.MOVING
             self._send_action(step["action"])
             return
@@ -628,33 +584,8 @@ class GridController:
             self._safe_stop("timed_step_no_deadline")
             return
         step = self._current_step()
-        ultrasonic_state = self._return_ultrasonic_state(step)
-        if ultrasonic_state == "reached":
-            self.serial.send_stop()
-            self._step_deadline = None
-            self.step_index += 1
-            if self.step_index >= len(self._current_steps()):
-                self._complete_phase()
-            else:
-                self._start_current_step()
-            return
-        if ultrasonic_state == "confirming":
-            self.serial.send_stop()
-            return
-        if ultrasonic_state == "invalid_after_match":
-            self._safe_stop("return_ultrasonic_unavailable")
-            return
-        if ultrasonic_state == "tracking":
-            if (
-                self._return_ultrasonic_max_deadline is not None
-                and self._clock() >= self._return_ultrasonic_max_deadline
-            ):
-                self._safe_stop("return_ultrasonic_target_not_reached")
-                return
         self._maybe_apply_aruco_tracking(step)
         self._send_action(step["action"])
-        if ultrasonic_state == "tracking":
-            return
         if self._clock() >= self._step_deadline:
             self.serial.send_stop()
             self._step_deadline = None
@@ -1030,100 +961,7 @@ class GridController:
         )
 
     def _complete_aruco_align(self) -> None:
-        steps = self._current_steps()
-        next_step = (
-            steps[self.step_index + 1]
-            if self.step_index + 1 < len(steps)
-            else None
-        )
-        if (
-            self.phase == "OUTBOUND"
-            and next_step is not None
-            and next_step.get("action") == "ARUCO_APPROACH"
-            and not self._record_shelf_entry_ultrasonic()
-        ):
-            return
         self._advance_step()
-
-    def _record_shelf_entry_ultrasonic(self) -> bool:
-        """Capture the front distance immediately before entering the shelf."""
-        if self.plan is None or not self.plan.get("return"):
-            return False
-        readings = self._latest_ultrasonic
-        if not self._valid_ultrasonic(readings):
-            readings = self.serial.get_ultrasonic()
-        if not self._valid_ultrasonic(readings):
-            self._safe_stop("shelf_entry_ultrasonic_unavailable")
-            return False
-        distance_cm = float(readings["center"])
-        if distance_cm <= 0:
-            self._safe_stop("shelf_entry_ultrasonic_unavailable")
-            return False
-        distance_cm = round(distance_cm, 1)
-        self._latest_ultrasonic = dict(readings)
-        self.plan["shelf_entry_ultrasonic_cm"] = distance_cm
-        return_step = self.plan["return"][0]
-        if return_step.get("match_entry_ultrasonic"):
-            return_step["target_ultrasonic_cm"] = distance_cm
-        return True
-
-    def _return_ultrasonic_state(self, step: dict) -> str:
-        """Return the state of the shelf-backout ultrasonic controller."""
-        if (
-            self.phase != "RETURNING"
-            or step.get("action") != "BACKWARD"
-            or not step.get("match_entry_ultrasonic")
-        ):
-            return "disabled"
-        raw_target = step.get("target_ultrasonic_cm")
-        if raw_target is None and self.plan is not None:
-            raw_target = self.plan.get("shelf_entry_ultrasonic_cm")
-        try:
-            target_cm = float(raw_target)
-            current_cm = float(self._latest_ultrasonic["center"])
-        except (KeyError, TypeError, ValueError):
-            if self._return_ultrasonic_match_frames > 0:
-                return "invalid_after_match"
-            return "tracking" if self._return_ultrasonic_active else "waiting"
-        if (
-            not np.isfinite(target_cm)
-            or target_cm <= 0
-            or not np.isfinite(current_cm)
-            or current_cm <= 0
-        ):
-            if self._return_ultrasonic_match_frames > 0:
-                return "invalid_after_match"
-            return "tracking" if self._return_ultrasonic_active else "waiting"
-
-        if current_cm <= target_cm - RETURN_ULTRASONIC_MIN_DEPARTURE_CM:
-            self._return_ultrasonic_active = True
-            self._return_ultrasonic_match_frames = 0
-
-        if not self._return_ultrasonic_active:
-            return "waiting"
-
-        plausible_match = (
-            target_cm
-            <= current_cm
-            <= target_cm + RETURN_ULTRASONIC_MAX_OVERSHOOT_CM
-        )
-        if plausible_match:
-            self._return_ultrasonic_match_frames += 1
-        else:
-            if (
-                self._return_ultrasonic_match_frames > 0
-                and current_cm > target_cm + RETURN_ULTRASONIC_MAX_OVERSHOOT_CM
-            ):
-                return "invalid_after_match"
-            self._return_ultrasonic_match_frames = 0
-        if (
-            self._return_ultrasonic_match_frames
-            >= RETURN_ULTRASONIC_CONFIRMATION_FRAMES
-        ):
-            return "reached"
-        if self._return_ultrasonic_match_frames > 0:
-            return "confirming"
-        return "tracking"
 
     def _step_aruco_guided_forward(self) -> None:
         """Drive forward for a fixed encoder distance while tracking a marker."""
