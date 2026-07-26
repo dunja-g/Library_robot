@@ -18,6 +18,8 @@ class FakeSerial:
         self.reset_ok = True
         self.motion_ok = True
         self.turn_status = "ACTIVE"
+        self.heading_fused_deg = 1.95
+        self.turn_requests = []
     def send_stop(self): self.commands.append("STOP"); return True
     def send_forward(self): self.commands.append("FORWARD"); return self.motion_ok
     def send_backward(self): self.commands.append("BACKWARD"); return self.motion_ok
@@ -37,13 +39,22 @@ class FakeSerial:
             "right_cm": float(self.encoders["right"]),
             "heading_encoder_deg": 1.0,
             "heading_imu_deg": 2.0,
-            "heading_fused_deg": 1.95,
+            "heading_fused_deg": self.heading_fused_deg,
             "speed_correction": -4,
         }
     def get_ultrasonic(self): return self.ultrasonic
-    def send_turn_left(self, _degrees=None): self.commands.append("TURN_LEFT"); return True
-    def send_turn_right(self, _degrees=None): self.commands.append("TURN_RIGHT"); return True
-    def send_turn_uturn(self, _degrees=None): self.commands.append("TURN_UTURN"); return True
+    def send_turn_left(self, degrees=None):
+        self.commands.append("TURN_LEFT")
+        self.turn_requests.append(("left", degrees))
+        return True
+    def send_turn_right(self, degrees=None):
+        self.commands.append("TURN_RIGHT")
+        self.turn_requests.append(("right", degrees))
+        return True
+    def send_turn_uturn(self, degrees=None):
+        self.commands.append("TURN_UTURN")
+        self.turn_requests.append(("uturn", degrees))
+        return True
     def get_turn_status(self): return self.turn_status
 
 
@@ -790,6 +801,65 @@ def test_aruco_align_advances_after_stop_and_detection():
     finish_align_settle(controller, clock)
     controller.step()
     assert controller.get_status()["current_action"] == "FORWARD"
+
+
+def test_shelf_alignment_heading_is_reused_for_the_opposite_return_turn():
+    serial, clock = FakeSerial(), FakeClock()
+    controller = GridController(serial, clock=clock, turn_source="imu")
+    plan = build_grid_route(
+        "1A",
+        GridGeometry(
+            10,
+            10,
+            5,
+            outbound_turn_degrees=90,
+            return_turn_degrees=90,
+        ),
+        EncoderCalibration(1, 4, 8),
+        turn_source="imu",
+    )
+    controller.request_grid_mission(plan)
+    controller.step_index = 3
+    controller._start_current_step()
+    serial.heading_fused_deg = -97.4
+
+    controller._complete_aruco_align()
+
+    assert controller.get_status()["current_action"] == "ARUCO_APPROACH"
+    assert controller.plan["shelf_entry_heading_degrees"] == -97.4
+    assert controller.plan["matched_return_turn_degrees"] == 97.4
+    assert controller.plan["return"][1]["target_degrees"] == 97.4
+
+    controller.phase = "RETURNING"
+    controller.step_index = 1
+    controller._start_current_step()
+    assert serial.turn_requests[-1] == ("right", 97.4)
+
+
+def test_invalid_shelf_heading_keeps_the_configured_return_angle():
+    serial, clock = FakeSerial(), FakeClock()
+    controller = GridController(serial, clock=clock, turn_source="imu")
+    plan = build_grid_route(
+        "1B",
+        GridGeometry(
+            10,
+            10,
+            5,
+            outbound_turn_degrees=90,
+            return_turn_degrees=90,
+        ),
+        EncoderCalibration(1, 4, 8),
+        turn_source="imu",
+    )
+    controller.request_grid_mission(plan)
+    controller.step_index = 3
+    controller._start_current_step()
+    serial.heading_fused_deg = 12.0
+
+    controller._complete_aruco_align()
+
+    assert controller.plan["return"][1]["target_degrees"] == 90
+    assert "matched_return_turn_degrees" not in controller.plan
 
 
 def test_aruco_approach_creeps_forward_after_target_area():

@@ -62,6 +62,12 @@ centre-aisle-to-column centre distance. Distance completion uses average
 left/right wheel travel, so steering corrections no longer make one row run
 farther than another. Return uses the same measured chassis-centre distance.
 
+The shelf-alignment step also records the fused IMU heading after all fine
+rotation pulses. The opposite return turn reuses its absolute angle, so a
+97-degree final shelf heading is undone by a 97-degree return turn and an
+86-degree heading by an 86-degree return turn. Only plausible 45–135 degree
+readings are accepted; otherwise the configured 90-degree target remains.
+
 The A route mirrors the B route. Route execution is non-blocking. All three
 ultrasonic data is validated during every moving or turning iteration.
 Missing encoder data, no encoder progress, missing ultrasonic data, or an
