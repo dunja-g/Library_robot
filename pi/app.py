@@ -296,7 +296,7 @@ if USE_MOCK:
         grid_geometry = GridGeometry(
             36,
             57,
-            37,
+            32,
             outbound_turn_degrees=90,
             return_turn_degrees=90,
             column_spacing_cm=74,
@@ -397,6 +397,9 @@ else:
         frame_provider=camera.get_frame if GRID_VISION_SOURCE == "aruco" else None,
         aruco_detector=aruco_detector,
         align_tolerance_px=config.align_tolerance_px,
+        last_row_return_align_tolerance_px=(
+            config.last_row_return_align_tolerance_px
+        ),
         alignment_confirmation_frames=config.alignment_confirmation_frames,
         target_loss_tolerance_frames=config.target_loss_tolerance_frames,
         aruco_target_area_px=config.aruco_target_area_px,

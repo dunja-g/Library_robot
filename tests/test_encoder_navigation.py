@@ -863,6 +863,101 @@ def test_return_centres_center_code_before_starting_reverse_motor():
     assert serial.commands[-1] == "BACKWARD"
 
 
+def test_last_row_return_accepts_wider_center_offset():
+    serial, clock = FakeSerial(), FakeClock()
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+
+    class OffsetDetector:
+        def detect_target(self, frame, target_id):
+            return {
+                "id": target_id,
+                "center_x": 390,
+                "center_y": 240,
+                "area": 100000,
+            }
+
+    controller = GridController(
+        serial,
+        clock=clock,
+        frame_provider=lambda: frame,
+        aruco_detector=OffsetDetector(),
+        alignment_confirmation_frames=1,
+        align_tolerance_px=30,
+        last_row_return_align_tolerance_px=90,
+        turn_source="imu",
+    )
+    plan = build_grid_route(
+        "3A",
+        GridGeometry(
+            10,
+            10,
+            5,
+            outbound_turn_degrees=90,
+            return_turn_degrees=90,
+        ),
+        EncoderCalibration(1, 4, 8),
+        turn_source="imu",
+    )
+    controller.request_grid_mission(plan)
+    controller.phase = "RETURNING"
+    controller.step_index = 2
+    controller._start_current_step()
+    serial.commands.clear()
+
+    finish_align_settle(controller, clock)
+
+    assert controller.get_status()["current_action"] == "BACKWARD"
+    assert serial.commands[-1] == "BACKWARD"
+    assert "ROTATE_RIGHT" not in serial.commands
+
+
+def test_first_two_rows_keep_normal_return_alignment_tolerance():
+    serial, clock = FakeSerial(), FakeClock()
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+
+    class OffsetDetector:
+        def detect_target(self, frame, target_id):
+            return {
+                "id": target_id,
+                "center_x": 390,
+                "center_y": 240,
+                "area": 100000,
+            }
+
+    controller = GridController(
+        serial,
+        clock=clock,
+        frame_provider=lambda: frame,
+        aruco_detector=OffsetDetector(),
+        alignment_confirmation_frames=1,
+        align_tolerance_px=30,
+        last_row_return_align_tolerance_px=90,
+        turn_source="imu",
+    )
+    plan = build_grid_route(
+        "2A",
+        GridGeometry(
+            10,
+            10,
+            5,
+            outbound_turn_degrees=90,
+            return_turn_degrees=90,
+        ),
+        EncoderCalibration(1, 4, 8),
+        turn_source="imu",
+    )
+    controller.request_grid_mission(plan)
+    controller.phase = "RETURNING"
+    controller.step_index = 2
+    controller._start_current_step()
+    serial.commands.clear()
+
+    finish_align_settle(controller, clock)
+
+    assert controller.get_status()["current_action"] == "ARUCO_ALIGN"
+    assert serial.commands[-1] == "ROTATE_RIGHT"
+
+
 def test_aruco_approach_creeps_forward_after_target_area():
     serial, clock = FakeSerial(), FakeClock()
     frame = np.zeros((480, 640, 3), dtype=np.uint8)
