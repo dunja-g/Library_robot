@@ -803,7 +803,7 @@ def test_aruco_align_advances_after_stop_and_detection():
     assert controller.get_status()["current_action"] == "FORWARD"
 
 
-def test_shelf_alignment_heading_is_reused_for_the_opposite_return_turn():
+def test_return_turn_accounts_for_heading_already_corrected_during_backout():
     serial, clock = FakeSerial(), FakeClock()
     controller = GridController(serial, clock=clock, turn_source="imu")
     plan = build_grid_route(
@@ -831,9 +831,46 @@ def test_shelf_alignment_heading_is_reused_for_the_opposite_return_turn():
     assert controller.plan["return"][1]["target_degrees"] == 97.4
 
     controller.phase = "RETURNING"
-    controller.step_index = 1
+    controller.step_index = 0
     controller._start_current_step()
-    assert serial.turn_requests[-1] == ("right", 97.4)
+    serial.encoders = {
+        "left": controller.plan["return"][0]["target_ticks"],
+        "right": controller.plan["return"][0]["target_ticks"],
+    }
+    serial.heading_fused_deg = 8.0
+
+    controller.step()
+
+    assert controller.plan["return_backout_heading_delta_degrees"] == 8.0
+    assert controller.plan["matched_return_turn_degrees"] == 89.4
+    assert controller.plan["return"][1]["target_degrees"] == 89.4
+    assert serial.turn_requests[-1] == ("right", 89.4)
+    assert controller.get_status()["return_backout_heading_delta_degrees"] == 8.0
+
+
+def test_implausible_backout_heading_does_not_change_matched_return_turn():
+    serial, clock = FakeSerial(), FakeClock()
+    controller = GridController(serial, clock=clock, turn_source="imu")
+    plan = build_grid_route(
+        "1A",
+        GridGeometry(10, 10, 5),
+        EncoderCalibration(1, 4, 8),
+        turn_source="imu",
+    )
+    controller.request_grid_mission(plan)
+    controller.plan["shelf_entry_heading_degrees"] = -97.4
+    controller.plan["matched_return_turn_degrees"] = 97.4
+    controller.plan["return"][1]["target_degrees"] = 97.4
+    controller.phase = "RETURNING"
+    controller.step_index = 0
+
+    controller._compensate_return_turn_for_backout_heading(
+        controller.plan["return"][0],
+        {"heading_fused_deg": 40.0},
+    )
+
+    assert controller.plan["return"][1]["target_degrees"] == 97.4
+    assert "return_backout_heading_delta_degrees" not in controller.plan
 
 
 def test_invalid_shelf_heading_keeps_the_configured_return_angle():

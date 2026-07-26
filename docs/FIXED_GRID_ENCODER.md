@@ -67,6 +67,11 @@ rotation pulses. The opposite return turn reuses its absolute angle, so a
 97-degree final shelf heading is undone by a 97-degree return turn and an
 86-degree heading by an 86-degree return turn. Only plausible 45–135 degree
 readings are accepted; otherwise the configured 90-degree target remains.
+Before that return turn, the controller also reads the signed heading change
+accumulated while backing out and calculates
+`abs(shelf entry heading + backout heading change)`. This avoids correcting the
+same angle twice. Backout changes above 30 degrees are treated as invalid and
+leave the previously matched return angle unchanged.
 
 The A route mirrors the B route. Route execution is non-blocking. All three
 ultrasonic data is validated during every moving or turning iteration.
