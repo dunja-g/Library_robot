@@ -54,21 +54,20 @@ def test_aruco_hybrid_route_uses_hallway_and_row_markers():
     ]
 
 
-def test_row2_boxes_use_box_markers_and_mirrored_turns():
+def test_all_rows_use_box_markers_and_semantic_turn_directions():
     geometry = GridGeometry(80, 75, 35)
     calibration = EncoderCalibration(10, 420, 840)
-    route_2a = build_grid_route("2A", geometry, calibration, turn_source="imu")
-    route_2b = build_grid_route("2B", geometry, calibration, turn_source="imu")
 
-    assert route_2a["outbound"][2]["action"] == "TURN_RIGHT"
-    assert route_2b["outbound"][2]["action"] == "TURN_LEFT"
-    assert route_2a["outbound"][3]["target_aruco_id"] == 2
-    assert route_2b["outbound"][3]["target_aruco_id"] == 3
-    assert route_2a["return"][1]["action"] == "TURN_LEFT"
-    assert route_2b["return"][1]["action"] == "TURN_RIGHT"
+    for row, marker_a, marker_b in ((1, 6, 1), (2, 2, 3), (3, 4, 5)):
+        route_a = build_grid_route(f"{row}A", geometry, calibration, turn_source="imu")
+        route_b = build_grid_route(f"{row}B", geometry, calibration, turn_source="imu")
 
-    route_1a = build_grid_route("1A", geometry, calibration, turn_source="imu")
-    assert route_1a["outbound"][2]["action"] == "TURN_LEFT"
+        assert route_a["outbound"][2]["action"] == "TURN_LEFT"
+        assert route_b["outbound"][2]["action"] == "TURN_RIGHT"
+        assert route_a["outbound"][3]["target_aruco_id"] == marker_a
+        assert route_b["outbound"][3]["target_aruco_id"] == marker_b
+        assert route_a["return"][1]["action"] == "TURN_RIGHT"
+        assert route_b["return"][1]["action"] == "TURN_LEFT"
 
 
 def test_return_backout_includes_approach_extra_distance():

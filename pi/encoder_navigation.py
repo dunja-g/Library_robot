@@ -64,7 +64,7 @@ class GridController:
         return_obstacle_distance_cm: float = 10.0,
         aruco_approach_extra_ticks: float = 0.0,
         aruco_approach_extra_seconds: float = 0.0,
-        invert_turn_direction: bool = True,
+        invert_turn_direction: bool = False,
         base_trim: int = 15,
         aruco_steering_kp: float = -0.15,
         clock=time.monotonic,

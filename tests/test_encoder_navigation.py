@@ -117,6 +117,7 @@ def test_invert_turn_direction_swaps_rotate_commands():
     controller.step_index = 1
     controller._start_current_step()
     controller.step()
+    assert plan["outbound"][1]["action"] == "TURN_LEFT"
     assert serial.commands[-1] == "ROTATE_RIGHT"
 
 

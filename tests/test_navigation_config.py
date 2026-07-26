@@ -8,6 +8,7 @@ def test_defaults_are_valid_for_current_camera_and_controller():
     assert (config.camera_width, config.camera_height) == (640, 480)
     assert config.target_confirmation_frames == 2
     assert config.target_loss_tolerance_frames == 3
+    assert config.invert_turn_direction is False
 
 
 def test_from_env_overrides_tuning_values(monkeypatch):

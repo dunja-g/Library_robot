@@ -62,7 +62,7 @@ class NavigationConfig:
     aruco_candidate_max_jump_px: float = 80.0
     aruco_approach_extra_cm: float = 8.0
     return_obstacle_distance_cm: float = 10.0
-    invert_turn_direction: bool = True
+    invert_turn_direction: bool = False
     turn_90_seconds: float = 0.8
     uturn_seconds: float = 1.6
     destination_dwell_seconds: float = 5.0
@@ -235,7 +235,7 @@ class NavigationConfig:
                 "LIBRARY_ROBOT_RETURN_OBSTACLE_DISTANCE_CM", 10.0, float
             ),
             invert_turn_direction=_env_bool(
-                "LIBRARY_ROBOT_INVERT_TURN_DIRECTION", True
+                "LIBRARY_ROBOT_INVERT_TURN_DIRECTION", False
             ),
             turn_90_seconds=_env_number(
                 "LIBRARY_ROBOT_TURN_90_SECONDS", 0.8, float
