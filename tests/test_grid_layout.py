@@ -91,6 +91,7 @@ def test_return_backout_matches_approach_without_offset():
     assert route["outbound"][-1]["target_ticks"] == 350
     assert route["return"][0]["target_ticks"] == 350
     assert route["return"][0].get("track_aruco_id") is None
+    assert route["return"][0]["match_entry_ultrasonic"] is True
 
 
 def test_a_and_b_use_mirrored_turns():

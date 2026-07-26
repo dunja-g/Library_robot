@@ -62,6 +62,14 @@ centre-aisle-to-column centre distance. Distance completion uses average
 left/right wheel travel, so steering corrections no longer make one row run
 farther than another. Return uses the same measured chassis-centre distance.
 
+Immediately before entering a shelf, the controller records the front-centre
+ultrasonic distance. During the first return `BACKWARD` step it waits until the
+sensor reaches that same distance, stops the motors immediately, and confirms
+the match with a second stationary reading. Encoder travel remains a progress
+and safety guard: if the ultrasonic target has not returned within 135% of the
+measured approach travel, the robot stops with
+`return_ultrasonic_target_not_reached` instead of continuing to reverse.
+
 The return turn uses the configured angle. Once that turn finishes, the robot
 stays stopped and uses short rotation pulses to place the Center code (hallway
 ArUco marker 0) near the middle of the camera view. It requires the configured
