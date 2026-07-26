@@ -64,6 +64,7 @@ class GridController:
         return_obstacle_distance_cm: float = 10.0,
         aruco_approach_extra_ticks: float = 0.0,
         aruco_approach_extra_seconds: float = 0.0,
+        return_backout_reduction_ticks: float = 0.0,
         invert_turn_direction: bool = False,
         base_trim: int = 15,
         aruco_steering_kp: float = -0.15,
@@ -107,6 +108,8 @@ class GridController:
             raise ValueError("aruco_approach_extra_ticks must be non-negative")
         if aruco_approach_extra_seconds < 0:
             raise ValueError("aruco_approach_extra_seconds must be non-negative")
+        if return_backout_reduction_ticks < 0:
+            raise ValueError("return_backout_reduction_ticks must be non-negative")
         if return_obstacle_distance_cm <= 0:
             raise ValueError("return_obstacle_distance_cm must be positive")
         self.serial = serial_bridge
@@ -135,6 +138,9 @@ class GridController:
         self.aruco_candidate_max_jump_px = float(aruco_candidate_max_jump_px)
         self.aruco_approach_extra_ticks = float(aruco_approach_extra_ticks)
         self.aruco_approach_extra_seconds = float(aruco_approach_extra_seconds)
+        self.return_backout_reduction_ticks = float(
+            return_backout_reduction_ticks
+        )
         self.return_obstacle_distance_cm = float(return_obstacle_distance_cm)
         self.invert_turn_direction = bool(invert_turn_direction)
         self.base_trim = int(base_trim)
@@ -1008,7 +1014,12 @@ class GridController:
         if progress is None:
             return
         step["aruco_approach_ticks_before_creep"] = progress
-        planned_target_ticks = float(step.get("target_ticks", 0.0))
+        base_target_ticks = float(step.get("target_ticks", 0.0))
+        planned_target_ticks = (
+            base_target_ticks + self.aruco_approach_extra_ticks
+            if base_target_ticks > 0
+            else 0.0
+        )
         creep_target_ticks = self.aruco_approach_extra_ticks
         if planned_target_ticks > 0:
             creep_target_ticks = max(0.0, planned_target_ticks - progress)
@@ -1063,7 +1074,12 @@ class GridController:
             step.get("aruco_approach_ticks_before_creep", 0.0)
         )
         return_step["target_ticks"] = max(
-            0, round(approach_ticks + float(creep_progress_ticks))
+            0,
+            round(
+                approach_ticks
+                + float(creep_progress_ticks)
+                - self.return_backout_reduction_ticks
+            ),
         )
         return_step["measured_from_outbound"] = True
 
@@ -1098,7 +1114,12 @@ class GridController:
         if step.get("aruco_creep_active"):
             self._step_aruco_approach_creep(step)
             return
-        planned_target_ticks = float(step.get("target_ticks", 0.0))
+        base_target_ticks = float(step.get("target_ticks", 0.0))
+        planned_target_ticks = (
+            base_target_ticks + self.aruco_approach_extra_ticks
+            if base_target_ticks > 0
+            else 0.0
+        )
         if planned_target_ticks > 0:
             progress = self._read_encoder_progress()
             if progress is None:

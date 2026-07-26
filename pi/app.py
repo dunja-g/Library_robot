@@ -320,8 +320,9 @@ if USE_MOCK:
             return {"id": target_id, "center_x": 320, "center_y": 240, "area": 100000}
 
     mock_approach_extra_ticks, mock_approach_extra_seconds = (
-        _resolve_aruco_approach_creep(12.0)
+        _resolve_aruco_approach_creep(8.0)
     )
+    mock_return_reduction_ticks, _ = _resolve_aruco_approach_creep(15.0)
     controller = GridController(
         MockEncoderSerial(),
         destination_dwell_seconds=0.3,
@@ -337,6 +338,7 @@ if USE_MOCK:
         aruco_align_fine_pulse_seconds=0.12,
         aruco_approach_extra_ticks=mock_approach_extra_ticks,
         aruco_approach_extra_seconds=mock_approach_extra_seconds,
+        return_backout_reduction_ticks=mock_return_reduction_ticks,
     )
     
     # Mock clock to advance rapidly so timed steps finish instantly in tests
@@ -406,6 +408,9 @@ else:
     approach_extra_ticks, approach_extra_seconds = _resolve_aruco_approach_creep(
         config.aruco_approach_extra_cm
     )
+    return_reduction_ticks, _ = _resolve_aruco_approach_creep(
+        config.return_backout_reduction_cm
+    )
     controller = GridController(
         serial_bridge,
         obstacle_distance_cm=config.obstacle_distance_cm,
@@ -436,6 +441,7 @@ else:
         aruco_candidate_max_jump_px=config.aruco_candidate_max_jump_px,
         aruco_approach_extra_ticks=approach_extra_ticks,
         aruco_approach_extra_seconds=approach_extra_seconds,
+        return_backout_reduction_ticks=return_reduction_ticks,
         return_obstacle_distance_cm=config.return_obstacle_distance_cm,
         invert_turn_direction=config.invert_turn_direction,
         base_trim=base_trim,

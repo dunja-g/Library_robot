@@ -57,10 +57,10 @@ For a destination such as `3B`, the generated route is:
 7. Reverse the measured row distance back and enter `DOCKED`.
 
 In ArUco mode, vision keeps the robot aimed at the shelf marker while the
-encoder target enforces the measured 37 cm centre-aisle-to-shelf distance.
-The controller records the complete approach and replaces the first return
-distance with that measured value. The robot therefore backs out by the
-distance it actually drove in rather than by a visual estimate.
+encoder target enforces the measured 37 cm centre-aisle-to-column distance
+plus the configured 8 cm inward offset. The controller records the complete
+approach and shortens the first return by the configured 15 cm field offset,
+preventing the chassis from reversing too far.
 
 The A route mirrors the B route. Route execution is non-blocking. All three
 ultrasonic data is validated during every moving or turning iteration.
@@ -112,6 +112,8 @@ LIBRARY_ROBOT_GRID_ROW_SPACING_CM=57
 LIBRARY_ROBOT_GRID_APPROACH_CM=37
 LIBRARY_ROBOT_GRID_OUTBOUND_TURN_DEGREES=90
 LIBRARY_ROBOT_GRID_RETURN_TURN_DEGREES=90
+LIBRARY_ROBOT_ARUCO_APPROACH_EXTRA_CM=8
+LIBRARY_ROBOT_RETURN_BACKOUT_REDUCTION_CM=15
 LIBRARY_ROBOT_ENCODER_TICKS_PER_CM=
 LIBRARY_ROBOT_ENCODER_TICKS_PER_REV=4
 LIBRARY_ROBOT_WHEEL_DIAMETER_CM=6.5
@@ -134,6 +136,10 @@ LIBRARY_ROBOT_MAX_HEADING_CORRECTION=30
   measured 74 cm between column centres gives 37 cm to either side.
 - `GRID_OUTBOUND_TURN_DEGREES` / `GRID_RETURN_TURN_DEGREES`: independently
   tunable IMU turn targets. Both start at 90 degrees.
+- `ARUCO_APPROACH_EXTRA_CM`: additional inward travel after the measured
+  centre-aisle-to-column distance.
+- `RETURN_BACKOUT_REDUCTION_CM`: distance intentionally retained inside the
+  aisle before the reverse turn, compensating the observed return overshoot.
 - `GRID_LINEAR_SOURCE=encoder`: straight outbound and reverse-return segments
   stop from encoder distance. Select `timed` only for deliberate bench tests.
 - `AUTO_RETURN=true`: after the configured destination dwell, begin the
