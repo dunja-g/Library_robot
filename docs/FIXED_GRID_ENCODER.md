@@ -58,8 +58,8 @@ For a destination such as `3B`, the generated route is:
 
 In ArUco mode, vision keeps the robot aimed at the shelf marker while the
 encoder target enforces the measured 37 cm centre-aisle-to-column distance
-plus the configured 3 cm inward offset. The controller records the complete
-approach and shortens the first return by the configured 10 cm field offset,
+with no additional inward offset. The controller records the complete
+approach and shortens the first return by the configured 3 cm field offset,
 preventing the chassis from reversing too far.
 
 The A route mirrors the B route. Route execution is non-blocking. All three
@@ -112,8 +112,8 @@ LIBRARY_ROBOT_GRID_ROW_SPACING_CM=57
 LIBRARY_ROBOT_GRID_APPROACH_CM=37
 LIBRARY_ROBOT_GRID_OUTBOUND_TURN_DEGREES=90
 LIBRARY_ROBOT_GRID_RETURN_TURN_DEGREES=90
-LIBRARY_ROBOT_ARUCO_APPROACH_EXTRA_CM=3
-LIBRARY_ROBOT_RETURN_BACKOUT_REDUCTION_CM=10
+LIBRARY_ROBOT_ARUCO_APPROACH_EXTRA_CM=0
+LIBRARY_ROBOT_RETURN_BACKOUT_REDUCTION_CM=3
 LIBRARY_ROBOT_ENCODER_TICKS_PER_CM=
 LIBRARY_ROBOT_ENCODER_TICKS_PER_REV=4
 LIBRARY_ROBOT_WHEEL_DIAMETER_CM=6.5
