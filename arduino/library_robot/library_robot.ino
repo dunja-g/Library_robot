@@ -1,0 +1,607 @@
+// Library Robot - Arduino Mega firmware
+// Motor control, three HC-SR04 sensors, serial protocol, and watchdog stop.
+
+#include <AFMotor.h>
+#include <string.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+// Motor Shield V1 channels: left M1/M4, right M2/M3.
+AF_DCMotor motorLeftFront(1);
+AF_DCMotor motorLeftRear(4);
+AF_DCMotor motorRightFront(2);
+AF_DCMotor motorRightRear(3);
+
+const uint8_t FORWARD_SPEED = 180;
+const uint8_t ROTATE_SPEED = 120;
+const uint8_t ROTATE_FINE_SPEED = 80;
+const float IMU_TURN_FINE_ZONE_DEG = 15.0;
+int leftSpeedReduction = 15;
+float fusionAlpha = 0.95;
+float leftTicksPerCm = 4.0 / (PI * 6.5);
+float rightTicksPerCm = 4.0 / (PI * 6.5);
+float wheelTrackCm = 18.0;
+float headingKp = 1.5;
+int maxHeadingCorrection = 30;
+// Short-lived steering input reserved for a future dynamic controller.
+int dynamicSteerBias = 0;
+unsigned long lastSteerBiasMs = 0;
+const int MAX_STEER_BIAS = 20;
+const unsigned long STEER_BIAS_TIMEOUT_MS = 200;
+const unsigned long COMMAND_TIMEOUT_MS = 2000;
+const unsigned long IMU_TURN_TIMEOUT_MS = 5000;
+const unsigned long HEADING_CONTROL_INTERVAL_US = 10000;
+
+// Confirmed Arduino Mega ultrasonic pins.
+const uint8_t TRIG_LEFT = 25;
+const uint8_t ECHO_LEFT = 24;
+const uint8_t TRIG_CENTER = 23;
+const uint8_t ECHO_CENTER = 22;
+const uint8_t TRIG_RIGHT = 27;
+const uint8_t ECHO_RIGHT = 26;
+
+// One encoder pulse input per drivetrain side. Mega pins 18 and 19 support
+// hardware interrupts. Change these two constants to match the final wiring.
+const uint8_t ENCODER_LEFT_PIN = 18;
+const uint8_t ENCODER_RIGHT_PIN = 19;
+volatile long encoderLeftTicks = 0;
+volatile long encoderRightTicks = 0;
+
+// MPU6500 on the Mega I2C bus: SDA pin 20, SCL pin 21.
+const uint8_t MPU_ADDR = 0x68;
+float gyroZBias = 0.0;
+bool imuTurnActive = false;
+uint8_t imuTurnState = 0;  // 0=IDLE, 1=ACTIVE, 2=DONE, 3=ERROR
+float imuTurnTargetDeg = 0.0;
+float imuTurnAngleDeg = 0.0;
+int8_t imuTurnDirection = 0;  // 1=right, -1=left
+unsigned long imuTurnStartedMs = 0;
+unsigned long lastGyroUs = 0;
+unsigned long lastHeadingControlUs = 0;
+float headingEncoderDeg = 0.0;
+float headingImuDeg = 0.0;
+float headingFusedDeg = 0.0;
+float leftDistanceCm = 0.0;
+float rightDistanceCm = 0.0;
+int headingCorrection = 0;
+int8_t linearMotionDirection = 0;  // 1=forward, -1=backward, 0=not linear
+int8_t leftEncoderDirection = 1;
+int8_t rightEncoderDirection = 1;
+
+// I2C LCD 16x2 (addr 0x27)
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+void lcdShow(const char* line1, const char* line2) {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(line1);
+  lcd.setCursor(0, 1);
+  lcd.print(line2);
+}
+
+void lcdStatus(const char* status, const char* detail = "") {
+  char line2[17];
+  snprintf(line2, 17, "%-8s %-7s", status, detail);
+  lcdShow(" Library Robot", line2);
+}
+
+const uint8_t COMMAND_BUFFER_SIZE = 96;
+char commandBuffer[COMMAND_BUFFER_SIZE];
+uint8_t commandLength = 0;
+unsigned long lastCommandMs = 0;
+bool motorsActive = false;
+
+void onLeftEncoderPulse() {
+  encoderLeftTicks++;
+}
+
+void onRightEncoderPulse() {
+  encoderRightTicks++;
+}
+
+void setLeft(uint8_t direction, uint8_t speedValue) {
+  if (direction == FORWARD) {
+    leftEncoderDirection = 1;
+  } else if (direction == BACKWARD) {
+    leftEncoderDirection = -1;
+  }
+  motorLeftFront.setSpeed(speedValue);
+  motorLeftRear.setSpeed(speedValue);
+  motorLeftFront.run(direction);
+  motorLeftRear.run(direction);
+}
+
+void setRight(uint8_t direction, uint8_t speedValue) {
+  if (direction == FORWARD) {
+    rightEncoderDirection = 1;
+  } else if (direction == BACKWARD) {
+    rightEncoderDirection = -1;
+  }
+  motorRightFront.setSpeed(speedValue);
+  motorRightRear.setSpeed(speedValue);
+  motorRightFront.run(direction);
+  motorRightRear.run(direction);
+}
+
+void stopAll() {
+  setLeft(RELEASE, 0);
+  setRight(RELEASE, 0);
+  motorsActive = false;
+  linearMotionDirection = 0;
+  headingCorrection = 0;
+}
+
+void cancelImuTurn() {
+  imuTurnActive = false;
+  imuTurnState = 0;
+  imuTurnDirection = 0;
+}
+
+void moveStraight(uint8_t direction) {
+  linearMotionDirection = direction == FORWARD ? 1 : -1;
+  int leftSpeed = constrain(FORWARD_SPEED - leftSpeedReduction, 0, 255);
+  int rightSpeed = constrain(FORWARD_SPEED + leftSpeedReduction, 0, 255);
+  setLeft(direction, leftSpeed);
+  setRight(direction, rightSpeed);
+  motorsActive = true;
+}
+
+void rotateLeftAtSpeed(uint8_t speedValue) {
+  linearMotionDirection = 0;
+  setLeft(BACKWARD, speedValue);
+  setRight(FORWARD, speedValue);
+  motorsActive = true;
+}
+
+void rotateLeft() {
+  rotateLeftAtSpeed(ROTATE_SPEED);
+}
+
+void rotateRightAtSpeed(uint8_t speedValue) {
+  linearMotionDirection = 0;
+  setLeft(FORWARD, speedValue);
+  setRight(BACKWARD, speedValue);
+  motorsActive = true;
+}
+
+void rotateRight() {
+  rotateRightAtSpeed(ROTATE_SPEED);
+}
+
+void wakeImu() {
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x6B);
+  Wire.write(0x00);
+  Wire.endTransmission();
+}
+
+float readGyroZ() {
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x47);
+  if (Wire.endTransmission(false) != 0) {
+    return 0.0;
+  }
+  if (Wire.requestFrom(MPU_ADDR, static_cast<uint8_t>(2)) != 2) {
+    return 0.0;
+  }
+  int16_t raw = (static_cast<int16_t>(Wire.read()) << 8) | Wire.read();
+  return raw / 131.0;
+}
+
+void calibrateGyro() {
+  Serial.println("IMU:CALIBRATING");
+  float sum = 0.0;
+  const uint16_t samples = 100;
+  for (uint16_t i = 0; i < samples; i++) {
+    sum += readGyroZ();
+    delay(10);
+  }
+  gyroZBias = sum / samples;
+  Serial.print("IMU:READY,");
+  Serial.println(gyroZBias, 3);
+}
+
+void startImuTurn(float targetDeg) {
+  cancelImuTurn();
+  imuTurnDirection = targetDeg > 0 ? 1 : -1;
+  if (targetDeg > 0) {
+    rotateRight();
+  } else {
+    rotateLeft();
+  }
+  imuTurnTargetDeg = abs(targetDeg);
+  imuTurnAngleDeg = 0.0;
+  imuTurnStartedMs = millis();
+  imuTurnActive = true;
+  imuTurnState = 1;
+  char buf[17];
+  snprintf(buf, 17, "Turn %s", targetDeg > 0 ? "R" : "L");
+  lcdStatus(buf, "");
+}
+
+void resetMotionEstimate() {
+  headingEncoderDeg = 0.0;
+  headingImuDeg = 0.0;
+  headingFusedDeg = 0.0;
+  leftDistanceCm = 0.0;
+  rightDistanceCm = 0.0;
+  headingCorrection = 0;
+  lastGyroUs = micros();
+  lastHeadingControlUs = lastGyroUs;
+}
+
+void applyStraightClosedLoop() {
+  if (linearMotionDirection == 0 || !motorsActive) {
+    return;
+  }
+  if (
+    dynamicSteerBias != 0
+    && millis() - lastSteerBiasMs > STEER_BIAS_TIMEOUT_MS
+  ) {
+    dynamicSteerBias = 0;
+  }
+  headingCorrection = constrain(
+    static_cast<int>(round(headingKp * headingFusedDeg)),
+    -maxHeadingCorrection,
+    maxHeadingCorrection
+  );
+  int totalCorrection = headingCorrection + dynamicSteerBias;
+
+  int leftBase = FORWARD_SPEED - leftSpeedReduction;
+  int rightBase = FORWARD_SPEED + leftSpeedReduction;
+  int leftSpeed;
+  int rightSpeed;
+  if (linearMotionDirection > 0) {
+    leftSpeed = leftBase + totalCorrection;
+    rightSpeed = rightBase - totalCorrection;
+    setLeft(FORWARD, constrain(leftSpeed, 0, 255));
+    setRight(FORWARD, constrain(rightSpeed, 0, 255));
+  } else {
+    // Steering polarity reverses when both wheels drive backward.
+    leftSpeed = leftBase - totalCorrection;
+    rightSpeed = rightBase + totalCorrection;
+    setLeft(BACKWARD, constrain(leftSpeed, 0, 255));
+    setRight(BACKWARD, constrain(rightSpeed, 0, 255));
+  }
+}
+
+void updateImuTurn() {
+  unsigned long nowUs = micros();
+  if (lastGyroUs == 0) {
+    lastGyroUs = nowUs;
+    return;
+  }
+  float dt = (nowUs - lastGyroUs) / 1000000.0;
+  if (dt <= 0.0 || dt > 0.1) {
+    lastGyroUs = nowUs;
+    return;
+  }
+  lastGyroUs = nowUs;
+  float rate = readGyroZ() - gyroZBias;
+  if (abs(rate) < 0.3) {
+    rate = 0.0;
+  }
+  headingImuDeg += rate * dt;
+
+  noInterrupts();
+  long leftSnapshot = encoderLeftTicks;
+  long rightSnapshot = encoderRightTicks;
+  interrupts();
+  leftDistanceCm =
+    leftEncoderDirection * leftSnapshot / leftTicksPerCm;
+  rightDistanceCm =
+    rightEncoderDirection * rightSnapshot / rightTicksPerCm;
+  headingEncoderDeg =
+    ((rightDistanceCm - leftDistanceCm) / wheelTrackCm) * 57.2957795;
+  headingFusedDeg =
+    fusionAlpha * headingImuDeg + (1.0 - fusionAlpha) * headingEncoderDeg;
+
+  if (imuTurnActive && abs(rate) > 0.0) {
+    imuTurnAngleDeg += abs(rate) * dt;
+  }
+  if (imuTurnActive && imuTurnAngleDeg >= imuTurnTargetDeg) {
+    stopAll();
+    imuTurnActive = false;
+    imuTurnDirection = 0;
+    imuTurnState = 2;
+    lcdStatus("Turn Done", "");
+    Serial.print("TURN_DONE:");
+    Serial.println(imuTurnAngleDeg, 1);
+  } else if (
+    imuTurnActive && millis() - imuTurnStartedMs >= IMU_TURN_TIMEOUT_MS
+  ) {
+    stopAll();
+    imuTurnActive = false;
+    imuTurnDirection = 0;
+    imuTurnState = 3;
+    lcdStatus("Turn ERR!", "");
+    Serial.println("TURN_ERROR:TIMEOUT");
+  } else if (
+    imuTurnActive
+    && imuTurnTargetDeg - imuTurnAngleDeg <= IMU_TURN_FINE_ZONE_DEG
+  ) {
+    if (imuTurnDirection > 0) {
+      rotateRightAtSpeed(ROTATE_FINE_SPEED);
+    } else {
+      rotateLeftAtSpeed(ROTATE_FINE_SPEED);
+    }
+  }
+
+  if (nowUs - lastHeadingControlUs >= HEADING_CONTROL_INTERVAL_US) {
+    lastHeadingControlUs = nowUs;
+    applyStraightClosedLoop();
+  }
+}
+
+void reportImuTurnStatus() {
+  Serial.print("TURN:");
+  if (imuTurnState == 1) {
+    Serial.println("ACTIVE");
+  } else if (imuTurnState == 2) {
+    Serial.println("DONE");
+  } else if (imuTurnState == 3) {
+    Serial.println("ERROR");
+  } else {
+    Serial.println("IDLE");
+  }
+}
+
+float readDistanceCm(uint8_t triggerPin, uint8_t echoPin) {
+  digitalWrite(triggerPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(triggerPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(triggerPin, LOW);
+
+  unsigned long duration = pulseIn(echoPin, HIGH, 30000UL);
+  if (duration == 0) {
+    return 999.0;
+  }
+  return duration * 0.0343 / 2.0;
+}
+
+void reportUltrasonic() {
+  float left = readDistanceCm(TRIG_LEFT, ECHO_LEFT);
+  updateImuTurn();
+  delay(5);
+  float center = readDistanceCm(TRIG_CENTER, ECHO_CENTER);
+  updateImuTurn();
+  delay(5);
+  float right = readDistanceCm(TRIG_RIGHT, ECHO_RIGHT);
+  updateImuTurn();
+
+  Serial.print("US:");
+  Serial.print(left, 1);
+  Serial.print(",");
+  Serial.print(center, 1);
+  Serial.print(",");
+  Serial.println(right, 1);
+}
+
+void resetEncoders() {
+  noInterrupts();
+  encoderLeftTicks = 0;
+  encoderRightTicks = 0;
+  interrupts();
+  resetMotionEstimate();
+  Serial.println("ENC_RESET:OK");
+}
+
+void reportEncoders() {
+  noInterrupts();
+  long leftSnapshot = encoderLeftTicks;
+  long rightSnapshot = encoderRightTicks;
+  interrupts();
+  Serial.print("ENC:");
+  Serial.print(leftSnapshot);
+  Serial.print(",");
+  Serial.println(rightSnapshot);
+}
+
+void reportOdometry() {
+  noInterrupts();
+  long leftSnapshot = encoderLeftTicks;
+  long rightSnapshot = encoderRightTicks;
+  interrupts();
+  Serial.print("ODOM:");
+  Serial.print(leftSnapshot);
+  Serial.print(",");
+  Serial.print(rightSnapshot);
+  Serial.print(",");
+  Serial.print(leftDistanceCm, 3);
+  Serial.print(",");
+  Serial.print(rightDistanceCm, 3);
+  Serial.print(",");
+  Serial.print(headingEncoderDeg, 3);
+  Serial.print(",");
+  Serial.print(headingImuDeg, 3);
+  Serial.print(",");
+  Serial.print(headingFusedDeg, 3);
+  Serial.print(",");
+  Serial.println(headingCorrection);
+}
+
+void handleCommand(const char *command) {
+  bool recognised = true;
+
+  if (strcmp(command, "FORWARD") == 0) {
+    cancelImuTurn();
+    lcdStatus("Forward", "");
+    moveStraight(FORWARD);
+  } else if (strcmp(command, "BACKWARD") == 0) {
+    dynamicSteerBias = 0;
+    cancelImuTurn();
+    lcdStatus("Backward", "");
+    moveStraight(BACKWARD);
+  } else if (strcmp(command, "ROTATE_LEFT") == 0) {
+    dynamicSteerBias = 0;
+    cancelImuTurn();
+    lcdStatus("Rot Left", "");
+    rotateLeft();
+  } else if (strcmp(command, "ROTATE_RIGHT") == 0) {
+    dynamicSteerBias = 0;
+    cancelImuTurn();
+    lcdStatus("Rot Right", "");
+    rotateRight();
+  } else if (strncmp(command, "TURN_LEFT", 9) == 0) {
+    dynamicSteerBias = 0;
+    float target = -90.0;
+    if (command[9] == ':') {
+      target = -abs(atof(command + 10));
+    }
+    startImuTurn(target);
+  } else if (strncmp(command, "TURN_RIGHT", 10) == 0) {
+    dynamicSteerBias = 0;
+    float target = 90.0;
+    if (command[10] == ':') {
+      target = abs(atof(command + 11));
+    }
+    startImuTurn(target);
+  } else if (strncmp(command, "TURN_UTURN", 10) == 0) {
+    dynamicSteerBias = 0;
+    float target = -180.0;
+    if (command[10] == ':') {
+      target = -abs(atof(command + 11));
+    }
+    startImuTurn(target);
+  } else if (strcmp(command, "TURN_STATUS") == 0) {
+    reportImuTurnStatus();
+  } else if (strcmp(command, "STOP") == 0) {
+    dynamicSteerBias = 0;
+    cancelImuTurn();
+    stopAll();
+    lcdStatus("Stopped", "");
+  } else if (strcmp(command, "CHECK") == 0) {
+    reportUltrasonic();
+  } else if (strcmp(command, "ENCODER") == 0) {
+    reportEncoders();
+  } else if (strcmp(command, "ODOMETRY") == 0) {
+    reportOdometry();
+  } else if (strcmp(command, "ENC_RESET") == 0) {
+    resetEncoders();
+  } else if (strncmp(command, "SET_TRIM:", 9) == 0) {
+    leftSpeedReduction = atoi(command + 9);
+  } else if (strncmp(command, "SET_STEER_BIAS:", 15) == 0) {
+    // Update steering only; motion state is deliberately left unchanged.
+    dynamicSteerBias = constrain(
+      atoi(command + 15),
+      -MAX_STEER_BIAS,
+      MAX_STEER_BIAS
+    );
+    lastSteerBiasMs = millis();
+  } else if (strncmp(command, "SET_FUSION:", 11) == 0) {
+    float alpha;
+    float leftScale;
+    float rightScale;
+    float track;
+    float kp;
+    int maxCorrection;
+    if (
+      sscanf(
+        command + 11,
+        "%f,%f,%f,%f,%f,%d",
+        &alpha,
+        &leftScale,
+        &rightScale,
+        &track,
+        &kp,
+        &maxCorrection
+      ) == 6
+      && alpha >= 0.0 && alpha <= 1.0
+      && leftScale > 0.0 && rightScale > 0.0 && track > 0.0
+      && kp >= 0.0 && maxCorrection >= 0 && maxCorrection <= 100
+    ) {
+      fusionAlpha = alpha;
+      leftTicksPerCm = leftScale;
+      rightTicksPerCm = rightScale;
+      wheelTrackCm = track;
+      headingKp = kp;
+      maxHeadingCorrection = maxCorrection;
+      resetMotionEstimate();
+      Serial.println("FUSION:OK");
+    } else {
+      recognised = false;
+      Serial.println("ERR:INVALID_FUSION_CONFIG");
+    }
+  } else if (strcmp(command, "LCD_READY") == 0) {
+    lcdShow(" Library Robot", "    Ready!");
+  } else if (strcmp(command, "LCD_FOLLOW") == 0) {
+    lcdShow(" Library Robot", "  Follow me!");
+  } else if (strcmp(command, "LCD_ARRIVE") == 0) {
+    lcdShow(" Library Robot", "   Arrive!");
+  } else if (strcmp(command, "LCD_RETURN") == 0) {
+    lcdShow(" Library Robot", "Back to dock");
+  } else if (strcmp(command, "LCD_ARRIVE_DOCK") == 0) {
+    lcdShow(" Library Robot", " Arrive dock");
+  } else if (strcmp(command, "LCD_ERROR") == 0) {
+    lcdShow(" Library Robot", "Erro! Be care!");
+  } else if (command[0] != '\0') {
+    recognised = false;
+    Serial.println("ERR:UNKNOWN_COMMAND");
+  }
+
+  if (recognised) {
+    lastCommandMs = millis();
+  }
+}
+
+void readSerialCommands() {
+  while (Serial.available() > 0) {
+    char incoming = static_cast<char>(Serial.read());
+    if (incoming == '\r') {
+      continue;
+    }
+    if (incoming == '\n') {
+      commandBuffer[commandLength] = '\0';
+      handleCommand(commandBuffer);
+      commandLength = 0;
+      continue;
+    }
+    if (commandLength < COMMAND_BUFFER_SIZE - 1) {
+      commandBuffer[commandLength++] = incoming;
+    } else {
+      commandLength = 0;
+      Serial.println("ERR:COMMAND_TOO_LONG");
+    }
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  lcd.init();
+  lcd.backlight();
+  lcdShow(" Library Robot", "   Starting...");
+
+  pinMode(TRIG_LEFT, OUTPUT);
+  pinMode(ECHO_LEFT, INPUT);
+  pinMode(TRIG_CENTER, OUTPUT);
+  pinMode(ECHO_CENTER, INPUT);
+  pinMode(TRIG_RIGHT, OUTPUT);
+  pinMode(ECHO_RIGHT, INPUT);
+  pinMode(ENCODER_LEFT_PIN, INPUT_PULLUP);
+  pinMode(ENCODER_RIGHT_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_PIN), onLeftEncoderPulse, RISING);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_PIN), onRightEncoderPulse, RISING);
+  Wire.begin();
+  Wire.setClock(400000);
+  wakeImu();
+  delay(100);
+  calibrateGyro();
+  resetMotionEstimate();
+  stopAll();
+  lastCommandMs = millis();
+  lcdStatus("Ready", "");
+  Serial.println("READY");
+}
+
+void loop() {
+  readSerialCommands();
+  updateImuTurn();
+  // IMU turns use their own bounded timeout so a valid 180-degree turn is not
+  // cut off by the normal serial-command watchdog.
+  if (!imuTurnActive && motorsActive && millis() - lastCommandMs > COMMAND_TIMEOUT_MS) {
+    stopAll();
+    lcdStatus("WATCHDOG", "");
+    Serial.println("WATCHDOG:STOPPED");
+  }
+}
