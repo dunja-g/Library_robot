@@ -163,6 +163,25 @@ class SerialBridge:
     def send_stop(self) -> bool:
         return self._send("STOP")
 
+    # ---- LCD context messages ----
+    def send_lcd_ready(self) -> bool:
+        return self._send("LCD_READY")
+
+    def send_lcd_follow(self) -> bool:
+        return self._send("LCD_FOLLOW")
+
+    def send_lcd_arrive(self) -> bool:
+        return self._send("LCD_ARRIVE")
+
+    def send_lcd_return(self) -> bool:
+        return self._send("LCD_RETURN")
+
+    def send_lcd_arrive_dock(self) -> bool:
+        return self._send("LCD_ARRIVE_DOCK")
+
+    def send_lcd_error(self) -> bool:
+        return self._send("LCD_ERROR")
+
     def reset_encoders(self) -> bool:
         """Reset both Mega encoder counters before a motion segment."""
         return self._send("ENC_RESET")

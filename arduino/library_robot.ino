@@ -523,6 +523,18 @@ void handleCommand(const char *command) {
       recognised = false;
       Serial.println("ERR:INVALID_FUSION_CONFIG");
     }
+  } else if (strcmp(command, "LCD_READY") == 0) {
+    lcdShow(" Library Robot", "    Ready!");
+  } else if (strcmp(command, "LCD_FOLLOW") == 0) {
+    lcdShow(" Library Robot", "  Follow me!");
+  } else if (strcmp(command, "LCD_ARRIVE") == 0) {
+    lcdShow(" Library Robot", "   Arrive!");
+  } else if (strcmp(command, "LCD_RETURN") == 0) {
+    lcdShow(" Library Robot", "Back to dock");
+  } else if (strcmp(command, "LCD_ARRIVE_DOCK") == 0) {
+    lcdShow(" Library Robot", " Arrive dock");
+  } else if (strcmp(command, "LCD_ERROR") == 0) {
+    lcdShow(" Library Robot", "Erro! Be care!");
   } else if (command[0] != '\0') {
     recognised = false;
     Serial.println("ERR:UNKNOWN_COMMAND");
