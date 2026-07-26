@@ -93,6 +93,7 @@ class RLResidualAdapter:
         max_bias: int = 5,
         deadline_ms: float = 50.0,
         obstacle_distance_cm: float = 20.0,
+        invert_bias: bool = False,
         serial_bridge: Any | None = None,
         infer: Callable[[list[float]], float] | None = None,
         clock: Callable[[], float] = time.monotonic,
@@ -113,6 +114,7 @@ class RLResidualAdapter:
         self.max_bias = int(max_bias)
         self.deadline_ms = float(deadline_ms)
         self.obstacle_distance_cm = float(obstacle_distance_cm)
+        self.invert_bias = bool(invert_bias)
         self.serial = serial_bridge
         self._clock = clock
 
@@ -158,6 +160,7 @@ class RLResidualAdapter:
             max_bias=getattr(config, "rl_max_bias", 5),
             deadline_ms=getattr(config, "rl_deadline_ms", 50.0),
             obstacle_distance_cm=getattr(config, "obstacle_distance_cm", 20.0),
+            invert_bias=getattr(config, "rl_invert_bias", False),
             serial_bridge=serial_bridge,
             infer=infer,
         )
@@ -470,6 +473,8 @@ class RLResidualAdapter:
         clamped_output = max(-1.0, min(1.0, raw_output * self.action_scale))
         suggested = int(round(clamped_output * self.max_bias))
         suggested = max(-self.max_bias, min(self.max_bias, suggested))
+        if self.invert_bias:
+            suggested = -suggested
 
         if inference_ms > self.deadline_ms:
             self._clear_bias()
@@ -669,6 +674,7 @@ class RLResidualAdapter:
             max_bias=self.max_bias,
             deadline_ms=self.deadline_ms,
             obstacle_distance_cm=self.obstacle_distance_cm,
+            invert_bias=self.invert_bias,
             observation_spec=self.observation_spec,
             observation_fields=list(self.observation_fields),
             normalization=(

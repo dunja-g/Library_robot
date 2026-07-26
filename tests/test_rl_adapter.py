@@ -97,6 +97,24 @@ def test_active_mode_sends_clamped_bias():
     assert serial.biases == [5]
 
 
+def test_active_mode_can_invert_bias_for_chassis_calibration():
+    serial = RecordingSerial()
+    adapter = RLResidualAdapter(
+        mode="active",
+        max_bias=5,
+        invert_bias=True,
+        serial_bridge=serial,
+        infer=lambda vector: 0.8,
+    )
+
+    result = adapter.step_from_status(moving_status())
+
+    assert result["suggested_bias"] == -4
+    assert result["applied_bias"] == -4
+    assert serial.biases == [-4]
+    assert adapter.get_status()["invert_bias"] is True
+
+
 def test_active_mode_reports_failure_when_serial_rejects():
     serial = RecordingSerial(ok=False)
     adapter = RLResidualAdapter(

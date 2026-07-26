@@ -21,6 +21,7 @@ def test_from_env_overrides_tuning_values(monkeypatch):
     monkeypatch.setenv("LIBRARY_ROBOT_ARUCO_STEERING_KP", "0.2")
     monkeypatch.setenv("LIBRARY_ROBOT_ARUCO_CANDIDATE_MAX_AREA_PX", "50000")
     monkeypatch.setenv("LIBRARY_ROBOT_ARUCO_CANDIDATE_MAX_JUMP_PX", "55")
+    monkeypatch.setenv("LIBRARY_ROBOT_RL_INVERT_BIAS", "true")
 
     config = NavigationConfig.from_env()
 
@@ -32,6 +33,7 @@ def test_from_env_overrides_tuning_values(monkeypatch):
     assert config.aruco_steering_kp == 0.2
     assert config.aruco_candidate_max_area_px == 50000
     assert config.aruco_candidate_max_jump_px == 55
+    assert config.rl_invert_bias is True
 
 
 def test_from_env_rejects_invalid_number(monkeypatch):
