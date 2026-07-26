@@ -100,6 +100,12 @@ class GridGeometry:
             forward_speed_cms=_optional_env_float(
                 "LIBRARY_ROBOT_FORWARD_SPEED_CMS"
             ),
+            outbound_turn_degrees=_optional_env_float(
+                "LIBRARY_ROBOT_GRID_OUTBOUND_TURN_DEGREES"
+            ),
+            return_turn_degrees=_optional_env_float(
+                "LIBRARY_ROBOT_GRID_RETURN_TURN_DEGREES"
+            ),
         )
 
     @property
@@ -361,6 +367,10 @@ def build_grid_route(
             },
         ]
 
+        if turn_source == "imu":
+            turn_step["target_degrees"] = geometry.outbound_turn_degrees
+            return_route[1]["target_degrees"] = geometry.return_turn_degrees
+
     if return_backout_extra_cm > 0:
         if timed_mode:
             return_route[0]["target_seconds"] = round(
@@ -400,6 +410,8 @@ def build_grid_route(
                 "ARUCO_APPROACH",
                 f"Approach shelf at {box_id}",
                 shelf_marker,
+                target_ticks=approach_step["target_ticks"],
+                target_seconds=approach_step["target_seconds"],
             ),
         ]
     else:

@@ -51,6 +51,14 @@ def test_app_is_fixed_grid_only_and_lists_numbered_books(monkeypatch, tmp_path):
     assert mode["linear_source"] == "encoder"
     assert mode["turn_source"] == "imu"
     assert mode["return_strategy"] == "direct_reverse"
+    assert mode["grid_geometry_cm"] == {
+        "first_row": 36,
+        "row_spacing": 57,
+        "approach": 37,
+        "column_spacing": 74,
+        "outbound_turn_degrees": 90,
+        "return_turn_degrees": 90,
+    }
     assert mode["active_controller"] == "GridController"
     assert mode["legacy_robot_controller_active"] is False
     assert "Deep Learning" in client.get("/books").get_json()

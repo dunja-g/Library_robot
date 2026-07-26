@@ -796,7 +796,7 @@ def test_aruco_approach_creeps_forward_after_target_area():
     )
     plan = build_grid_route(
         "1A",
-        GridGeometry(10, 10, 5),
+        GridGeometry(10, 10, 17),
         EncoderCalibration(1, 4, 8),
         turn_source="imu",
     )
@@ -804,6 +804,7 @@ def test_aruco_approach_creeps_forward_after_target_area():
     controller.step_index = 4
     controller._start_current_step()
 
+    serial.encoders = {"left": 5, "right": 5}
     controller.step()
     assert controller._current_step()["aruco_creep_active"] is True
     assert "ENC_RESET" in serial.commands
@@ -813,6 +814,43 @@ def test_aruco_approach_creeps_forward_after_target_area():
     controller.step()
     assert serial.commands[-1] == "STOP"
     assert controller.get_state() == GridState.ARRIVED.value
+    assert controller.plan["return"][0]["target_ticks"] == 17
+    assert controller.plan["return"][0]["measured_from_outbound"] is True
+
+
+def test_aruco_approach_never_exceeds_the_measured_shelf_distance():
+    serial, clock = FakeSerial(), FakeClock()
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+
+    class SmallMarkerDetector(CenteredArucoDetector):
+        def detect_target(self, frame, target_id):
+            detection = super().detect_target(frame, target_id)
+            detection["area"] = 100.0
+            return detection
+
+    controller = GridController(
+        serial,
+        clock=clock,
+        frame_provider=lambda: frame,
+        aruco_detector=SmallMarkerDetector(),
+        aruco_target_area_px=8000.0,
+    )
+    plan = build_grid_route(
+        "1A",
+        GridGeometry(10, 10, 17),
+        EncoderCalibration(1, 4, 8),
+        turn_source="imu",
+    )
+    controller.request_grid_mission(plan)
+    controller.step_index = 4
+    controller._start_current_step()
+
+    serial.encoders = {"left": 17, "right": 17}
+    controller.step()
+
+    assert controller.get_state() == GridState.ARRIVED.value
+    assert controller.plan["return"][0]["target_ticks"] == 17
+    assert serial.commands[-1] == "STOP"
 
 
 def test_encoder_forward_applies_soft_aruco_tracking():
@@ -916,6 +954,10 @@ def test_aruco_hybrid_route_completes_with_mock_vision():
     for _ in range(80):
         if controller._align_settle_until is not None:
             finish_align_settle(controller, clock)
+        step = controller._current_step()
+        if step and step.get("aruco_creep_active"):
+            target = step["aruco_creep_target_ticks"]
+            serial.encoders = {"left": target, "right": target}
         controller.step()
         if controller.get_state() == GridState.ARRIVED.value:
             break

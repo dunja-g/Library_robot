@@ -306,7 +306,13 @@ if USE_MOCK:
                 time.sleep(0.05)
 
     if grid_geometry.missing_fields:
-        grid_geometry = GridGeometry(80, 75, 35)
+        grid_geometry = GridGeometry(
+            36,
+            57,
+            37,
+            outbound_turn_degrees=90,
+            return_turn_degrees=90,
+        )
     mock_frame = np.zeros((480, 640, 3), dtype=np.uint8)
 
     class MockArucoDetector:
@@ -623,6 +629,13 @@ def navigation_mode():
                 "first_row": grid_geometry.first_row_distance_cm,
                 "row_spacing": grid_geometry.row_spacing_cm,
                 "approach": grid_geometry.box_approach_distance_cm,
+                "column_spacing": (
+                    None
+                    if grid_geometry.box_approach_distance_cm is None
+                    else 2 * float(grid_geometry.box_approach_distance_cm)
+                ),
+                "outbound_turn_degrees": grid_geometry.outbound_turn_degrees,
+                "return_turn_degrees": grid_geometry.return_turn_degrees,
             },
             "encoder_ticks_per_cm": encoder_calibration.resolved_ticks_per_cm,
             "linear_source": GRID_LINEAR_SOURCE,

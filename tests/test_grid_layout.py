@@ -33,7 +33,13 @@ def test_grid_route_is_generated_from_late_bound_dimensions():
 
 
 def test_aruco_hybrid_route_uses_hallway_and_row_markers():
-    geometry = GridGeometry(80, 75, 35)
+    geometry = GridGeometry(
+        80,
+        75,
+        35,
+        outbound_turn_degrees=90,
+        return_turn_degrees=90,
+    )
     calibration = EncoderCalibration(10, 420, 840)
     route = build_grid_route("3B", geometry, calibration, turn_source="imu")
 
@@ -49,6 +55,9 @@ def test_aruco_hybrid_route_uses_hallway_and_row_markers():
     assert route["outbound"][1]["track_aruco_id"] == 0
     assert route["outbound"][3]["target_aruco_id"] == 5
     assert route["outbound"][4]["target_aruco_id"] == 5
+    assert route["outbound"][4]["target_ticks"] == 350
+    assert route["outbound"][2]["target_degrees"] == 90
+    assert route["return"][1]["target_degrees"] == 90
     assert [step["action"] for step in route["return"]] == [
         "BACKWARD", "TURN_LEFT", "BACKWARD"
     ]
@@ -170,3 +179,62 @@ def test_confirmed_encoder_and_wheel_defaults(monkeypatch):
     calibration = EncoderCalibration.from_env()
     assert calibration.ticks_per_revolution == 4
     assert calibration.wheel_diameter_cm == 6.5
+
+
+def test_measured_grid_geometry_loads_from_environment(monkeypatch):
+    monkeypatch.setenv("LIBRARY_ROBOT_GRID_FIRST_ROW_CM", "36")
+    monkeypatch.setenv("LIBRARY_ROBOT_GRID_ROW_SPACING_CM", "57")
+    monkeypatch.setenv("LIBRARY_ROBOT_GRID_APPROACH_CM", "37")
+    monkeypatch.setenv("LIBRARY_ROBOT_GRID_OUTBOUND_TURN_DEGREES", "90")
+    monkeypatch.setenv("LIBRARY_ROBOT_GRID_RETURN_TURN_DEGREES", "90")
+
+    geometry = GridGeometry.from_env()
+
+    assert geometry.distance_to_row(1) == 36
+    assert geometry.distance_to_row(2) == 93
+    assert geometry.distance_to_row(3) == 150
+    assert geometry.box_approach_distance_cm == 37
+    assert geometry.outbound_turn_degrees == 90
+    assert geometry.return_turn_degrees == 90
+
+
+def test_measured_routes_are_distance_symmetric_for_every_row():
+    geometry = GridGeometry(
+        36,
+        57,
+        37,
+        outbound_turn_degrees=90,
+        return_turn_degrees=90,
+    )
+    calibration = EncoderCalibration(ticks_per_cm=1, turn_90_ticks=90)
+
+    for row, aisle_distance in ((1, 36), (2, 93), (3, 150)):
+        for side in ("A", "B"):
+            route = build_grid_route(
+                f"{row}{side}",
+                geometry,
+                calibration,
+                turn_source="imu",
+                vision_source="encoder",
+            )
+            assert route["outbound"][0]["target_ticks"] == aisle_distance
+            assert route["outbound"][2]["target_ticks"] == 37
+            assert route["return"][0]["target_ticks"] == 37
+            assert route["return"][2]["target_ticks"] == aisle_distance
+            assert route["outbound"][1]["target_degrees"] == 90
+            assert route["return"][1]["target_degrees"] == 90
+
+
+def test_measured_aruco_approach_uses_the_37_cm_encoder_limit():
+    route = build_grid_route(
+        "1A",
+        GridGeometry(36, 57, 37),
+        EncoderCalibration(ticks_per_cm=1, turn_90_ticks=90),
+        turn_source="imu",
+        vision_source="aruco",
+    )
+
+    approach = route["outbound"][-1]
+    assert approach["action"] == "ARUCO_APPROACH"
+    assert approach["target_ticks"] == 37
+    assert route["return"][0]["target_ticks"] == 37

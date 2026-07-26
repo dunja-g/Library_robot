@@ -56,6 +56,12 @@ For a destination such as `3B`, the generated route is:
 6. Apply the mirrored 90-degree turn to align with the aisle.
 7. Reverse the measured row distance back and enter `DOCKED`.
 
+In ArUco mode, vision keeps the robot aimed at the shelf marker while the
+encoder target enforces the measured 37 cm centre-aisle-to-shelf distance.
+The controller records the complete approach and replaces the first return
+distance with that measured value. The robot therefore backs out by the
+distance it actually drove in rather than by a visual estimate.
+
 The A route mirrors the B route. Route execution is non-blocking. All three
 ultrasonic data is validated during every moving or turning iteration.
 Missing encoder data, no encoder progress, missing ultrasonic data, or an
@@ -101,9 +107,11 @@ Do not enable real grid movement until the layout and fused odometry are measure
 
 ```dotenv
 LIBRARY_ROBOT_NAVIGATION_MODE=grid
-LIBRARY_ROBOT_GRID_FIRST_ROW_CM=
-LIBRARY_ROBOT_GRID_ROW_SPACING_CM=
-LIBRARY_ROBOT_GRID_APPROACH_CM=
+LIBRARY_ROBOT_GRID_FIRST_ROW_CM=36
+LIBRARY_ROBOT_GRID_ROW_SPACING_CM=57
+LIBRARY_ROBOT_GRID_APPROACH_CM=37
+LIBRARY_ROBOT_GRID_OUTBOUND_TURN_DEGREES=90
+LIBRARY_ROBOT_GRID_RETURN_TURN_DEGREES=90
 LIBRARY_ROBOT_ENCODER_TICKS_PER_CM=
 LIBRARY_ROBOT_ENCODER_TICKS_PER_REV=4
 LIBRARY_ROBOT_WHEEL_DIAMETER_CM=6.5
@@ -122,7 +130,10 @@ LIBRARY_ROBOT_MAX_HEADING_CORRECTION=30
 
 - `GRID_FIRST_ROW_CM`: Dock reference line to the turn centre of row 1.
 - `GRID_ROW_SPACING_CM`: centre-to-centre distance between adjacent rows.
-- `GRID_APPROACH_CM`: centre aisle to the safe stop point at a box.
+- `GRID_APPROACH_CM`: centre aisle to the safe stop point at a box. The
+  measured 74 cm between column centres gives 37 cm to either side.
+- `GRID_OUTBOUND_TURN_DEGREES` / `GRID_RETURN_TURN_DEGREES`: independently
+  tunable IMU turn targets. Both start at 90 degrees.
 - `GRID_LINEAR_SOURCE=encoder`: straight outbound and reverse-return segments
   stop from encoder distance. Select `timed` only for deliberate bench tests.
 - `AUTO_RETURN=true`: after the configured destination dwell, begin the

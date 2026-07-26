@@ -13,6 +13,8 @@ AF_DCMotor motorRightRear(3);
 
 const uint8_t FORWARD_SPEED = 180;
 const uint8_t ROTATE_SPEED = 120;
+const uint8_t ROTATE_FINE_SPEED = 80;
+const float IMU_TURN_FINE_ZONE_DEG = 15.0;
 int leftSpeedReduction = 15;
 float fusionAlpha = 0.95;
 float leftTicksPerCm = 4.0 / (PI * 6.5);
@@ -51,6 +53,7 @@ bool imuTurnActive = false;
 uint8_t imuTurnState = 0;  // 0=IDLE, 1=ACTIVE, 2=DONE, 3=ERROR
 float imuTurnTargetDeg = 0.0;
 float imuTurnAngleDeg = 0.0;
+int8_t imuTurnDirection = 0;  // 1=right, -1=left
 unsigned long imuTurnStartedMs = 0;
 unsigned long lastGyroUs = 0;
 unsigned long lastHeadingControlUs = 0;
@@ -113,6 +116,7 @@ void stopAll() {
 void cancelImuTurn() {
   imuTurnActive = false;
   imuTurnState = 0;
+  imuTurnDirection = 0;
 }
 
 void moveStraight(uint8_t direction) {
@@ -124,18 +128,26 @@ void moveStraight(uint8_t direction) {
   motorsActive = true;
 }
 
-void rotateLeft() {
+void rotateLeftAtSpeed(uint8_t speedValue) {
   linearMotionDirection = 0;
-  setLeft(BACKWARD, ROTATE_SPEED);
-  setRight(FORWARD, ROTATE_SPEED);
+  setLeft(BACKWARD, speedValue);
+  setRight(FORWARD, speedValue);
+  motorsActive = true;
+}
+
+void rotateLeft() {
+  rotateLeftAtSpeed(ROTATE_SPEED);
+}
+
+void rotateRightAtSpeed(uint8_t speedValue) {
+  linearMotionDirection = 0;
+  setLeft(FORWARD, speedValue);
+  setRight(BACKWARD, speedValue);
   motorsActive = true;
 }
 
 void rotateRight() {
-  linearMotionDirection = 0;
-  setLeft(FORWARD, ROTATE_SPEED);
-  setRight(BACKWARD, ROTATE_SPEED);
-  motorsActive = true;
+  rotateRightAtSpeed(ROTATE_SPEED);
 }
 
 void wakeImu() {
@@ -173,6 +185,7 @@ void calibrateGyro() {
 
 void startImuTurn(float targetDeg) {
   cancelImuTurn();
+  imuTurnDirection = targetDeg > 0 ? 1 : -1;
   if (targetDeg > 0) {
     rotateRight();
   } else {
@@ -268,6 +281,7 @@ void updateImuTurn() {
   if (imuTurnActive && imuTurnAngleDeg >= imuTurnTargetDeg) {
     stopAll();
     imuTurnActive = false;
+    imuTurnDirection = 0;
     imuTurnState = 2;
     Serial.print("TURN_DONE:");
     Serial.println(imuTurnAngleDeg, 1);
@@ -276,8 +290,18 @@ void updateImuTurn() {
   ) {
     stopAll();
     imuTurnActive = false;
+    imuTurnDirection = 0;
     imuTurnState = 3;
     Serial.println("TURN_ERROR:TIMEOUT");
+  } else if (
+    imuTurnActive
+    && imuTurnTargetDeg - imuTurnAngleDeg <= IMU_TURN_FINE_ZONE_DEG
+  ) {
+    if (imuTurnDirection > 0) {
+      rotateRightAtSpeed(ROTATE_FINE_SPEED);
+    } else {
+      rotateLeftAtSpeed(ROTATE_FINE_SPEED);
+    }
   }
 
   if (nowUs - lastHeadingControlUs >= HEADING_CONTROL_INTERVAL_US) {
