@@ -35,6 +35,7 @@ class NavigationConfig:
     camera_fps: int = 20
     control_hz: float = 10.0
     align_tolerance_px: int = 30
+    last_row_return_align_tolerance_px: int = 90
     stop_distance_cm: float = 35.0
     obstacle_distance_cm: float = 20.0
     scan_timeout_seconds: float = 60.0
@@ -91,6 +92,10 @@ class NavigationConfig:
             raise ValueError(f"Configuration values must be positive: {invalid}")
         if self.align_tolerance_px < 0:
             raise ValueError("align_tolerance_px must be non-negative")
+        if self.last_row_return_align_tolerance_px < 0:
+            raise ValueError(
+                "last_row_return_align_tolerance_px must be non-negative"
+            )
         if self.target_loss_tolerance_frames < 0:
             raise ValueError("target_loss_tolerance_frames must be non-negative")
         if self.min_marker_area_px < 0:
@@ -150,6 +155,9 @@ class NavigationConfig:
             control_hz=_env_number("LIBRARY_ROBOT_CONTROL_HZ", 10.0, float),
             align_tolerance_px=_env_number(
                 "LIBRARY_ROBOT_ALIGN_TOLERANCE_PX", 30, int
+            ),
+            last_row_return_align_tolerance_px=_env_number(
+                "LIBRARY_ROBOT_LAST_ROW_RETURN_ALIGN_TOLERANCE_PX", 90, int
             ),
             stop_distance_cm=_env_number(
                 "LIBRARY_ROBOT_STOP_DISTANCE_CM", 35.0, float

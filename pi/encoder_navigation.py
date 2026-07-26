@@ -50,6 +50,7 @@ class GridController:
         frame_provider: Any | None = None,
         aruco_detector: Any | None = None,
         align_tolerance_px: int = 30,
+        last_row_return_align_tolerance_px: int = 90,
         alignment_confirmation_frames: int = 2,
         target_loss_tolerance_frames: int = 3,
         aruco_target_area_px: float = 8000.0,
@@ -78,6 +79,10 @@ class GridController:
             raise ValueError("turn_source must be 'encoder' or 'imu'")
         if align_tolerance_px < 0:
             raise ValueError("align_tolerance_px must be non-negative")
+        if last_row_return_align_tolerance_px < 0:
+            raise ValueError(
+                "last_row_return_align_tolerance_px must be non-negative"
+            )
         if alignment_confirmation_frames <= 0:
             raise ValueError("alignment_confirmation_frames must be positive")
         if target_loss_tolerance_frames < 0:
@@ -114,6 +119,9 @@ class GridController:
         self.frame_provider = frame_provider
         self.aruco_detector = aruco_detector
         self.align_tolerance_px = int(align_tolerance_px)
+        self.last_row_return_align_tolerance_px = int(
+            last_row_return_align_tolerance_px
+        )
         self.alignment_confirmation_frames = int(alignment_confirmation_frames)
         self.target_loss_tolerance_frames = int(target_loss_tolerance_frames)
         self.aruco_target_area_px = float(aruco_target_area_px)
@@ -678,16 +686,32 @@ class GridController:
 
     def _turn_toward_error(self, error_x: float, *, fine: bool) -> None:
         """Turn so an off-centre marker moves toward the middle of the frame."""
-        if abs(error_x) <= self.align_tolerance_px:
+        if abs(error_x) <= self._active_align_tolerance_px():
             return
         direction = "left" if error_x < 0 else "right"
         self._start_align_pulse(direction, fine=fine)
+
+    def _active_align_tolerance_px(self) -> int:
+        """Relax only the final row's return alignment before reverse travel."""
+        step = self._current_step()
+        if (
+            self.phase == "RETURNING"
+            and self.plan is not None
+            and int(self.plan.get("row", 0)) == 3
+            and step is not None
+            and step.get("action") == "ARUCO_ALIGN"
+        ):
+            return max(
+                self.align_tolerance_px,
+                self.last_row_return_align_tolerance_px,
+            )
+        return self.align_tolerance_px
 
     def _can_reacquire(self) -> bool:
         """True while a briefly lost marker may still be chased in its last direction."""
         return (
             self._align_last_error_x is not None
-            and abs(self._align_last_error_x) > self.align_tolerance_px
+            and abs(self._align_last_error_x) > self._active_align_tolerance_px()
             and self._align_reacquire_pulses < self.aruco_align_max_reacquire_pulses
         )
 
@@ -783,7 +807,7 @@ class GridController:
 
         if (
             self._align_last_error_x is not None
-            and abs(self._align_last_error_x) > self.align_tolerance_px
+            and abs(self._align_last_error_x) > self._active_align_tolerance_px()
         ):
             self._align_search_direction = (
                 "left" if self._align_last_error_x < 0 else "right"
@@ -861,7 +885,7 @@ class GridController:
         self._align_search_span = 1
         self._align_search_leg_done = 0
         self._align_search_total = 0
-        if abs(error) <= self.align_tolerance_px:
+        if abs(error) <= self._active_align_tolerance_px():
             self.serial.send_stop()
             self._aligned_frames += 1
             if self._aligned_frames >= self.alignment_confirmation_frames:
@@ -908,7 +932,7 @@ class GridController:
                 if candidate.state == CandidateState.CONFIRMED:
                     candidate_error = float(candidate.error_x)
                     self._align_last_error_x = candidate_error
-                    if abs(candidate_error) <= self.align_tolerance_px:
+                    if abs(candidate_error) <= self._active_align_tolerance_px():
                         # A centred undecoded quad is only a hint: stay stopped
                         # and keep trying to decode the requested ID.
                         self._begin_align_settle(short=True)
