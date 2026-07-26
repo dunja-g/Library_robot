@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import Any
 
 import cv2
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def _apply_sensitive_detector_params(parameters: cv2.aruco.DetectorParameters) -> None:
@@ -34,6 +38,7 @@ class ArucoDetector:
         clahe_tile_grid: int = 8,
         upscale_factor: float = 2.0,
         candidate_min_area_px: float = 900.0,
+        candidate_max_area_px: float = 120000.0,
     ):
         if not hasattr(cv2, "aruco"):
             raise RuntimeError(
@@ -50,6 +55,8 @@ class ArucoDetector:
             raise ValueError("upscale_factor must be at least 1.0")
         if candidate_min_area_px < 0:
             raise ValueError("candidate_min_area_px must be non-negative")
+        if candidate_max_area_px <= 0:
+            raise ValueError("candidate_max_area_px must be positive")
 
         self.min_area_px = float(min_area_px)
         self.enhance_vision = bool(enhance_vision)
@@ -57,6 +64,11 @@ class ArucoDetector:
         self.clahe_tile_grid = int(clahe_tile_grid)
         self.upscale_factor = float(upscale_factor)
         self.candidate_min_area_px = float(candidate_min_area_px)
+        self.candidate_max_area_px = float(candidate_max_area_px)
+        self._timing_started = time.monotonic()
+        self._timing_calls = 0
+        self._timing_total_ms = 0.0
+        self._timing_max_ms = 0.0
         self._clahe = cv2.createCLAHE(
             clipLimit=self.clahe_clip_limit,
             tileGridSize=(self.clahe_tile_grid, self.clahe_tile_grid),
@@ -82,7 +94,7 @@ class ArucoDetector:
         if not isinstance(frame, np.ndarray):
             raise TypeError("frame must be a numpy array")
         if frame.size == 0 or frame.ndim not in (2, 3):
-            raise ValueError("frame must be a non-empty grayscale or BGR image")
+            raise ValueError("frame must be a non-empty grayscale or RGB image")
         if frame.ndim == 3 and frame.shape[2] not in (3, 4):
             raise ValueError("colour frames must contain 3 or 4 channels")
 
@@ -90,8 +102,8 @@ class ArucoDetector:
         if frame.ndim == 2:
             return frame
         if frame.shape[2] == 4:
-            return cv2.cvtColor(frame, cv2.COLOR_BGRA2GRAY)
-        return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            return cv2.cvtColor(frame, cv2.COLOR_RGBA2GRAY)
+        return cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
 
     def _enhance_gray(self, gray: np.ndarray) -> np.ndarray:
         """Boost local contrast and sharpen edges for ArUco binarisation."""
@@ -170,23 +182,46 @@ class ArucoDetector:
             detections.append(detection)
         return detections
 
-    def _candidates_on_gray(
-        self, gray: np.ndarray, scale: float = 1.0
-    ) -> list[dict[str, Any]]:
-        _corners, _ids, rejected = self._run_detector(gray)
-        if rejected is None:
-            return []
+    @staticmethod
+    def _valid_candidate_shape(points: np.ndarray) -> bool:
+        """Reject concave and strongly non-square quads before navigation sees them."""
+        contour = np.asarray(points, dtype=np.float32).reshape(4, 1, 2)
+        if not cv2.isContourConvex(contour):
+            return False
+        edges = [
+            float(np.linalg.norm(points[(index + 1) % 4] - points[index]))
+            for index in range(4)
+        ]
+        width = (edges[0] + edges[2]) / 2.0
+        height = (edges[1] + edges[3]) / 2.0
+        shorter = min(width, height)
+        return shorter > 0 and max(width, height) / shorter <= 1.8
 
-        candidates: list[dict[str, Any]] = []
-        for raw_corners in rejected:
-            candidate = self._describe(self._quad(raw_corners, scale))
-            if candidate["area"] < self.candidate_min_area_px:
-                continue
-            candidates.append(candidate)
-        return candidates
+    def _record_timing(self, elapsed_ms: float) -> None:
+        """Periodically report detector cost without logging every control tick."""
+        self._timing_calls += 1
+        self._timing_total_ms += elapsed_ms
+        self._timing_max_ms = max(self._timing_max_ms, elapsed_ms)
+        now = time.monotonic()
+        if now - self._timing_started < 10.0:
+            return
+        logger.info(
+            "ArUco detection timing: calls=%d avg_ms=%.1f max_ms=%.1f passes=%d",
+            self._timing_calls,
+            self._timing_total_ms / self._timing_calls,
+            self._timing_max_ms,
+            4 if self.enhance_vision and self.upscale_factor > 1.0 else (
+                3 if self.enhance_vision else 1
+            ),
+        )
+        self._timing_started = now
+        self._timing_calls = 0
+        self._timing_total_ms = 0.0
+        self._timing_max_ms = 0.0
 
     def detect(self, frame: np.ndarray) -> list[dict[str, Any]]:
         """Return marker ID, centre, polygon area and corners for each marker."""
+        started = time.perf_counter()
         self._validate_frame(frame)
         merged: dict[int, dict[str, Any]] = {}
         for gray, scale in self._detection_variants(frame):
@@ -197,7 +232,9 @@ class ArucoDetector:
                     current["area"]
                 ):
                     merged[marker_id] = detection
-        return list(merged.values())
+        detections = list(merged.values())
+        self._record_timing((time.perf_counter() - started) * 1000.0)
+        return detections
 
     def detect_candidates(self, frame: np.ndarray) -> list[dict[str, Any]]:
         """Return marker-shaped quads whose ID could not be decoded.
@@ -205,11 +242,41 @@ class ArucoDetector:
         These are the near-misses that let the robot keep steering toward a
         marker it can see but not yet read.
         """
+        started = time.perf_counter()
         self._validate_frame(frame)
+        decoded: list[dict[str, Any]] = []
         candidates: list[dict[str, Any]] = []
         for gray, scale in self._detection_variants(frame):
-            candidates.extend(self._candidates_on_gray(gray, scale))
-        return self._deduplicate(candidates)
+            corners, ids, rejected = self._run_detector(gray)
+            if ids is not None:
+                for marker_id, raw_corners in zip(ids.flatten(), corners):
+                    marker = self._describe(self._quad(raw_corners, scale))
+                    marker["id"] = int(marker_id)
+                    decoded.append(marker)
+            if rejected is not None:
+                for raw_corners in rejected:
+                    points = self._quad(raw_corners, scale)
+                    candidate = self._describe(points)
+                    if not (
+                        self.candidate_min_area_px
+                        <= candidate["area"]
+                        <= self.candidate_max_area_px
+                    ):
+                        continue
+                    if self._valid_candidate_shape(points):
+                        candidates.append(candidate)
+        candidates = self._deduplicate(candidates)
+        filtered = [
+            candidate
+            for candidate in candidates
+            if not any(
+                abs(candidate["center_x"] - marker["center_x"]) <= 12
+                and abs(candidate["center_y"] - marker["center_y"]) <= 12
+                for marker in decoded
+            )
+        ]
+        self._record_timing((time.perf_counter() - started) * 1000.0)
+        return filtered
 
     @staticmethod
     def _deduplicate(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:

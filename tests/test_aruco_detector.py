@@ -40,6 +40,14 @@ def test_empty_frame_contains_no_detections():
     assert ArucoDetector().detect(frame) == []
 
 
+def test_colour_frames_follow_the_camera_rgb_contract():
+    frame = np.array([[[255, 0, 0]]], dtype=np.uint8)
+
+    gray = ArucoDetector()._to_gray(frame)
+
+    assert int(gray[0, 0]) == 76
+
+
 def test_minimum_area_filters_small_markers():
     frame = as_bgr(create_marker(2, image_size=300, border_px=30))
     unfiltered = ArucoDetector().detect(frame)
@@ -80,6 +88,41 @@ def test_candidate_area_filter_drops_specks():
     cv2.rectangle(frame, (425, 225), (495, 295), (255, 255, 255), -1)
 
     assert ArucoDetector(candidate_min_area_px=1_000_000).detect_candidates(frame) == []
+
+
+def test_candidate_maximum_area_drops_frame_filling_quads():
+    detector = ArucoDetector(candidate_max_area_px=5_000)
+    frame = np.full((480, 640, 3), 255, dtype=np.uint8)
+    cv2.rectangle(frame, (100, 80), (540, 400), (0, 0, 0), -1)
+    cv2.rectangle(frame, (180, 140), (460, 340), (255, 255, 255), -1)
+
+    assert detector.detect_candidates(frame) == []
+
+
+def test_candidate_shape_requires_convex_nearly_square_quad():
+    square = np.array([[0, 0], [100, 0], [100, 100], [0, 100]], dtype=np.float32)
+    rectangle = np.array([[0, 0], [300, 0], [300, 50], [0, 50]], dtype=np.float32)
+    concave = np.array([[0, 0], [100, 0], [40, 40], [0, 100]], dtype=np.float32)
+
+    assert ArucoDetector._valid_candidate_shape(square) is True
+    assert ArucoDetector._valid_candidate_shape(rectangle) is False
+    assert ArucoDetector._valid_candidate_shape(concave) is False
+
+
+def test_decoded_marker_location_is_excluded_from_candidates(monkeypatch):
+    detector = ArucoDetector(candidate_min_area_px=0)
+    frame = np.zeros((100, 100, 3), dtype=np.uint8)
+    quad = np.array([[[10, 10], [60, 10], [60, 60], [10, 60]]], dtype=np.float32)
+    monkeypatch.setattr(
+        detector, "_detection_variants", lambda _frame: [(np.zeros((2, 2)), 1.0)]
+    )
+    monkeypatch.setattr(
+        detector,
+        "_run_detector",
+        lambda _gray: ([quad], np.array([[4]], dtype=np.int32), [quad]),
+    )
+
+    assert detector.detect_candidates(frame) == []
 
 
 def test_upscale_pass_recovers_a_small_distant_marker():

@@ -53,9 +53,13 @@ class NavigationConfig:
     aruco_align_max_search_pulses: int = 6
     aruco_align_max_reacquire_pulses: int = 2
     aruco_align_invert_turn: bool = False
+    aruco_steering_kp: float = -0.15
     aruco_track_candidates: bool = True
     aruco_upscale_factor: float = 2.0
     aruco_candidate_min_area_px: float = 900.0
+    aruco_candidate_max_area_px: float = 120000.0
+    aruco_candidate_confirmation_frames: int = 2
+    aruco_candidate_max_jump_px: float = 80.0
     aruco_approach_extra_cm: float = 8.0
     return_obstacle_distance_cm: float = 10.0
     invert_turn_direction: bool = True
@@ -115,6 +119,16 @@ class NavigationConfig:
             raise ValueError("aruco_upscale_factor must be at least 1.0")
         if self.aruco_candidate_min_area_px < 0:
             raise ValueError("aruco_candidate_min_area_px must be non-negative")
+        if self.aruco_candidate_max_area_px <= self.aruco_candidate_min_area_px:
+            raise ValueError(
+                "aruco_candidate_max_area_px must exceed aruco_candidate_min_area_px"
+            )
+        if self.aruco_candidate_confirmation_frames < 2:
+            raise ValueError(
+                "aruco_candidate_confirmation_frames must be at least 2"
+            )
+        if self.aruco_candidate_max_jump_px <= 0:
+            raise ValueError("aruco_candidate_max_jump_px must be positive")
         if self.aruco_approach_extra_cm < 0:
             raise ValueError("aruco_approach_extra_cm must be non-negative")
         if self.return_obstacle_distance_cm <= 0:
@@ -193,6 +207,9 @@ class NavigationConfig:
             aruco_align_invert_turn=_env_bool(
                 "LIBRARY_ROBOT_ARUCO_ALIGN_INVERT_TURN", False
             ),
+            aruco_steering_kp=_env_number(
+                "LIBRARY_ROBOT_ARUCO_STEERING_KP", -0.15, float
+            ),
             aruco_track_candidates=_env_bool(
                 "LIBRARY_ROBOT_ARUCO_TRACK_CANDIDATES", True
             ),
@@ -201,6 +218,15 @@ class NavigationConfig:
             ),
             aruco_candidate_min_area_px=_env_number(
                 "LIBRARY_ROBOT_ARUCO_CANDIDATE_MIN_AREA_PX", 900.0, float
+            ),
+            aruco_candidate_max_area_px=_env_number(
+                "LIBRARY_ROBOT_ARUCO_CANDIDATE_MAX_AREA_PX", 120000.0, float
+            ),
+            aruco_candidate_confirmation_frames=_env_number(
+                "LIBRARY_ROBOT_ARUCO_CANDIDATE_CONFIRMATION_FRAMES", 2, int
+            ),
+            aruco_candidate_max_jump_px=_env_number(
+                "LIBRARY_ROBOT_ARUCO_CANDIDATE_MAX_JUMP_PX", 80.0, float
             ),
             aruco_approach_extra_cm=_env_number(
                 "LIBRARY_ROBOT_ARUCO_APPROACH_EXTRA_CM", 8.0, float

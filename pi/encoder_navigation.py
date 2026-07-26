@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 import time
 from copy import deepcopy
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
@@ -20,6 +21,18 @@ class GridState(str, Enum):
     RETURNING = "RETURNING"
     DOCKED = "DOCKED"
     STOPPED = "STOPPED"
+
+
+class CandidateState(str, Enum):
+    MISSING = "MISSING"
+    PENDING = "PENDING"
+    CONFIRMED = "CONFIRMED"
+
+
+@dataclass(frozen=True)
+class CandidateObservation:
+    state: CandidateState
+    error_x: float | None = None
 
 
 class GridController:
@@ -46,6 +59,8 @@ class GridController:
         aruco_align_max_reacquire_pulses: int = 2,
         aruco_align_invert_turn: bool = False,
         aruco_track_candidates: bool = True,
+        aruco_candidate_confirmation_frames: int = 2,
+        aruco_candidate_max_jump_px: float = 80.0,
         return_obstacle_distance_cm: float = 10.0,
         aruco_approach_extra_ticks: float = 0.0,
         aruco_approach_extra_seconds: float = 0.0,
@@ -82,6 +97,12 @@ class GridController:
             raise ValueError("aruco_align_max_search_pulses must be positive")
         if aruco_align_max_reacquire_pulses < 0:
             raise ValueError("aruco_align_max_reacquire_pulses must be non-negative")
+        if aruco_candidate_confirmation_frames < 2:
+            raise ValueError(
+                "aruco_candidate_confirmation_frames must be at least 2"
+            )
+        if aruco_candidate_max_jump_px <= 0:
+            raise ValueError("aruco_candidate_max_jump_px must be positive")
         if aruco_approach_extra_ticks < 0:
             raise ValueError("aruco_approach_extra_ticks must be non-negative")
         if aruco_approach_extra_seconds < 0:
@@ -108,6 +129,10 @@ class GridController:
         self.aruco_align_max_reacquire_pulses = int(aruco_align_max_reacquire_pulses)
         self.aruco_align_invert_turn = bool(aruco_align_invert_turn)
         self.aruco_track_candidates = bool(aruco_track_candidates)
+        self.aruco_candidate_confirmation_frames = int(
+            aruco_candidate_confirmation_frames
+        )
+        self.aruco_candidate_max_jump_px = float(aruco_candidate_max_jump_px)
         self.aruco_approach_extra_ticks = float(aruco_approach_extra_ticks)
         self.aruco_approach_extra_seconds = float(aruco_approach_extra_seconds)
         self.return_obstacle_distance_cm = float(return_obstacle_distance_cm)
@@ -143,6 +168,9 @@ class GridController:
         self._align_search_leg_done: int = 0
         self._align_search_total: int = 0
         self._align_reacquire_pulses: int = 0
+        self._candidate_last_center: tuple[float, float] | None = None
+        self._candidate_stable_frames: int = 0
+        self._align_last_target_center: tuple[float, float] | None = None
 
     def request_grid_mission(self, plan: dict) -> None:
         if not plan.get("outbound") or not plan.get("return"):
@@ -626,10 +654,10 @@ class GridController:
     def _start_align_pulse(self, direction: str, *, fine: bool = False) -> None:
         # Vision alignment is a closed loop: the camera sees the result of the
         # last pulse, so it must not reuse the open-loop route-turn inversion.
-        if self.aruco_align_invert_turn:
-            direction = self._physical_turn_direction(direction)
-        elif direction not in {"left", "right"}:
+        if direction not in {"left", "right"}:
             raise ValueError("direction must be 'left' or 'right'")
+        if self.aruco_align_invert_turn:
+            direction = "right" if direction == "left" else "left"
         duration = (
             self.aruco_align_fine_pulse_seconds
             if fine
@@ -670,29 +698,84 @@ class GridController:
         self._align_search_leg_done = 0
         self._align_search_total = 0
         self._align_reacquire_pulses = 0
+        self._reset_candidate_tracking(clear_target=True)
 
-    def _candidate_error_x(self, frame: Any | None) -> float | None:
-        """Offset of the largest marker-shaped quad whose ID would not decode.
+    def _reset_candidate_tracking(self, *, clear_target: bool = False) -> None:
+        self._candidate_last_center = None
+        self._candidate_stable_frames = 0
+        if clear_target:
+            self._align_last_target_center = None
 
-        Returns ``None`` when nothing usable is visible or the quad is already
-        centred, so the caller falls through to the bounded search sweep.
+    def _candidate_observation(
+        self, frame: Any | None, target_id: int
+    ) -> CandidateObservation:
+        """Return a confirmed marker-like hint without treating it as the target.
+
+        A hint must remain near the last decoded/observed position for multiple
+        frames. Even a confirmed, centred hint only holds the robot still; only
+        a decoded matching ID can complete alignment.
         """
-        if not self.aruco_track_candidates or frame is None:
-            return None
+        step = self._current_step()
+        if (
+            not self.aruco_track_candidates
+            or frame is None
+            or step is None
+            or step.get("action") != "ARUCO_ALIGN"
+        ):
+            self._reset_candidate_tracking()
+            return CandidateObservation(CandidateState.MISSING)
         detect_candidates = getattr(self.aruco_detector, "detect_candidates", None)
         if not callable(detect_candidates):
-            return None
+            return CandidateObservation(CandidateState.MISSING)
         try:
             candidates = detect_candidates(frame)
         except Exception:
-            return None
+            self._reset_candidate_tracking()
+            return CandidateObservation(CandidateState.MISSING)
         if not candidates:
-            return None
-        best = max(candidates, key=lambda item: float(item["area"]))
-        error = self._marker_error_x(frame, best)
-        return error if abs(error) > self.align_tolerance_px else None
+            self._reset_candidate_tracking()
+            return CandidateObservation(CandidateState.MISSING)
 
-    def _bias_search_direction(self, frame: Any | None, target_id: int) -> None:
+        anchor = self._candidate_last_center or self._align_last_target_center
+        if anchor is not None:
+            candidates = [
+                item
+                for item in candidates
+                if (
+                    (float(item["center_x"]) - anchor[0]) ** 2
+                    + (float(item["center_y"]) - anchor[1]) ** 2
+                ) ** 0.5
+                <= self.aruco_candidate_max_jump_px
+            ]
+        if not candidates:
+            self._reset_candidate_tracking()
+            return CandidateObservation(CandidateState.MISSING)
+
+        best = max(candidates, key=lambda item: float(item["area"]))
+        center = (float(best["center_x"]), float(best["center_y"]))
+        if self._candidate_last_center is None:
+            self._candidate_stable_frames = 1
+        else:
+            jump = (
+                (center[0] - self._candidate_last_center[0]) ** 2
+                + (center[1] - self._candidate_last_center[1]) ** 2
+            ) ** 0.5
+            self._candidate_stable_frames = (
+                self._candidate_stable_frames + 1
+                if jump <= self.aruco_candidate_max_jump_px
+                else 1
+            )
+        self._candidate_last_center = center
+        error = self._marker_error_x(frame, best)
+        state = (
+            CandidateState.CONFIRMED
+            if self._candidate_stable_frames
+            >= self.aruco_candidate_confirmation_frames
+            else CandidateState.PENDING
+        )
+        return CandidateObservation(state, error)
+
+    def _bias_search_direction(self) -> None:
         """Aim the first sweep leg at wherever a marker was last seen."""
         if self._align_search_total > 0:
             return
@@ -706,35 +789,15 @@ class GridController:
             )
             return
 
-        candidate_error = self._candidate_error_x(frame)
-        if candidate_error is not None:
-            self._align_search_direction = "left" if candidate_error < 0 else "right"
-            return
+        # Decoded non-target IDs and unconfirmed quads must not bias the sweep.
 
-        if frame is None or self.aruco_detector is None:
-            return
-        detect = getattr(self.aruco_detector, "detect", None)
-        if not callable(detect):
-            return
-        detections = detect(frame)
-        target_matches = [
-            item for item in detections if int(item["id"]) == target_id
-        ]
-        candidates = target_matches or detections
-        if not candidates:
-            return
-        best = max(candidates, key=lambda item: float(item["area"]))
-        error = self._marker_error_x(frame, best)
-        if abs(error) > self.align_tolerance_px:
-            self._align_search_direction = "left" if error < 0 else "right"
-
-    def _begin_align_search_pulse(self, frame: Any | None, target_id: int) -> None:
+    def _begin_align_search_pulse(self) -> None:
         """Sweep in widening left/right legs, then give up instead of spinning on."""
         if self._align_search_total >= self.aruco_align_max_search_pulses:
             self._safe_stop("aruco_marker_not_found")
             return
 
-        self._bias_search_direction(frame, target_id)
+        self._bias_search_direction()
         if self._align_search_leg_done >= self._align_search_span:
             self._align_search_direction = (
                 "right" if self._align_search_direction == "left" else "left"
@@ -786,6 +849,11 @@ class GridController:
             return
 
         error = self._marker_error_x(frame, detection)
+        self._align_last_target_center = (
+            float(detection["center_x"]),
+            float(detection["center_y"]),
+        )
+        self._reset_candidate_tracking()
         self._align_last_error_x = error
         self._target_missing_frames = 0
         self._align_reacquire_pulses = 0
@@ -832,16 +900,25 @@ class GridController:
                 return
             if detection is None:
                 self._aligned_frames = 0
+                candidate = self._candidate_observation(frame, target_id)
+                if candidate.state == CandidateState.PENDING:
+                    self._begin_align_settle(short=True)
+                    return
+                if candidate.state == CandidateState.CONFIRMED:
+                    candidate_error = float(candidate.error_x)
+                    self._align_last_error_x = candidate_error
+                    if abs(candidate_error) <= self.align_tolerance_px:
+                        # A centred undecoded quad is only a hint: stay stopped
+                        # and keep trying to decode the requested ID.
+                        self._begin_align_settle(short=True)
+                    else:
+                        self._turn_toward_error(candidate_error, fine=True)
+                    return
                 if short_settle and self._can_reacquire():
                     self._align_reacquire_pulses += 1
                     self._turn_toward_error(self._align_last_error_x, fine=True)
                     return
-                candidate_error = self._candidate_error_x(frame)
-                if candidate_error is not None:
-                    self._align_last_error_x = candidate_error
-                    self._turn_toward_error(candidate_error, fine=True)
-                    return
-                self._begin_align_search_pulse(frame, target_id)
+                self._begin_align_search_pulse()
                 return
             self._handle_align_detection(frame, detection, on_centered=on_centered)
             return

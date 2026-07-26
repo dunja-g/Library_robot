@@ -16,6 +16,9 @@ def test_from_env_overrides_tuning_values(monkeypatch):
     monkeypatch.setenv("LIBRARY_ROBOT_MIN_MARKER_AREA_PX", "450")
     monkeypatch.setenv("LIBRARY_ROBOT_AUTO_RETURN", "off")
     monkeypatch.setenv("LIBRARY_ROBOT_TURN_90_SECONDS", "1.1")
+    monkeypatch.setenv("LIBRARY_ROBOT_ARUCO_STEERING_KP", "0.2")
+    monkeypatch.setenv("LIBRARY_ROBOT_ARUCO_CANDIDATE_MAX_AREA_PX", "50000")
+    monkeypatch.setenv("LIBRARY_ROBOT_ARUCO_CANDIDATE_MAX_JUMP_PX", "55")
 
     config = NavigationConfig.from_env()
 
@@ -24,6 +27,9 @@ def test_from_env_overrides_tuning_values(monkeypatch):
     assert config.min_marker_area_px == 450.0
     assert config.auto_return is False
     assert config.turn_90_seconds == 1.1
+    assert config.aruco_steering_kp == 0.2
+    assert config.aruco_candidate_max_area_px == 50000
+    assert config.aruco_candidate_max_jump_px == 55
 
 
 def test_from_env_rejects_invalid_number(monkeypatch):
@@ -43,3 +49,5 @@ def test_config_rejects_unsafe_values():
         NavigationConfig(control_hz=0)
     with pytest.raises(ValueError):
         NavigationConfig(target_loss_tolerance_frames=-1)
+    with pytest.raises(ValueError):
+        NavigationConfig(aruco_candidate_confirmation_frames=1)
