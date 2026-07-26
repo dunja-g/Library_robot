@@ -803,9 +803,34 @@ def test_aruco_align_advances_after_stop_and_detection():
     assert controller.get_status()["current_action"] == "FORWARD"
 
 
-def test_return_turn_accounts_for_heading_already_corrected_during_backout():
+class OffCenterThenCenteredDetector:
+    def __init__(self):
+        self.calls = 0
+        self.target_ids = []
+
+    def detect_target(self, frame, target_id):
+        self.calls += 1
+        self.target_ids.append(target_id)
+        return {
+            "id": target_id,
+            "center_x": 400 if self.calls == 1 else 320,
+            "center_y": 240,
+            "area": 100000,
+        }
+
+
+def test_return_centres_center_code_before_starting_reverse_motor():
     serial, clock = FakeSerial(), FakeClock()
-    controller = GridController(serial, clock=clock, turn_source="imu")
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    detector = OffCenterThenCenteredDetector()
+    controller = GridController(
+        serial,
+        clock=clock,
+        frame_provider=lambda: frame,
+        aruco_detector=detector,
+        alignment_confirmation_frames=1,
+        turn_source="imu",
+    )
     plan = build_grid_route(
         "1A",
         GridGeometry(
@@ -819,84 +844,23 @@ def test_return_turn_accounts_for_heading_already_corrected_during_backout():
         turn_source="imu",
     )
     controller.request_grid_mission(plan)
-    controller.step_index = 3
-    controller._start_current_step()
-    serial.heading_fused_deg = -97.4
-
-    controller._complete_aruco_align()
-
-    assert controller.get_status()["current_action"] == "ARUCO_APPROACH"
-    assert controller.plan["shelf_entry_heading_degrees"] == -97.4
-    assert controller.plan["matched_return_turn_degrees"] == 97.4
-    assert controller.plan["return"][1]["target_degrees"] == 97.4
-
     controller.phase = "RETURNING"
-    controller.step_index = 0
+    controller.step_index = 2
     controller._start_current_step()
-    serial.encoders = {
-        "left": controller.plan["return"][0]["target_ticks"],
-        "right": controller.plan["return"][0]["target_ticks"],
-    }
-    serial.heading_fused_deg = 8.0
+    serial.commands.clear()
 
+    finish_align_settle(controller, clock)
+
+    assert controller.get_status()["current_action"] == "ARUCO_ALIGN"
+    assert serial.commands[-1] == "ROTATE_RIGHT"
+    assert "BACKWARD" not in serial.commands
+
+    clock.now += controller.aruco_align_fine_pulse_seconds + 0.01
     controller.step()
 
-    assert controller.plan["return_backout_heading_delta_degrees"] == 8.0
-    assert controller.plan["matched_return_turn_degrees"] == 89.4
-    assert controller.plan["return"][1]["target_degrees"] == 89.4
-    assert serial.turn_requests[-1] == ("right", 89.4)
-    assert controller.get_status()["return_backout_heading_delta_degrees"] == 8.0
-
-
-def test_implausible_backout_heading_does_not_change_matched_return_turn():
-    serial, clock = FakeSerial(), FakeClock()
-    controller = GridController(serial, clock=clock, turn_source="imu")
-    plan = build_grid_route(
-        "1A",
-        GridGeometry(10, 10, 5),
-        EncoderCalibration(1, 4, 8),
-        turn_source="imu",
-    )
-    controller.request_grid_mission(plan)
-    controller.plan["shelf_entry_heading_degrees"] = -97.4
-    controller.plan["matched_return_turn_degrees"] = 97.4
-    controller.plan["return"][1]["target_degrees"] = 97.4
-    controller.phase = "RETURNING"
-    controller.step_index = 0
-
-    controller._compensate_return_turn_for_backout_heading(
-        controller.plan["return"][0],
-        {"heading_fused_deg": 40.0},
-    )
-
-    assert controller.plan["return"][1]["target_degrees"] == 97.4
-    assert "return_backout_heading_delta_degrees" not in controller.plan
-
-
-def test_invalid_shelf_heading_keeps_the_configured_return_angle():
-    serial, clock = FakeSerial(), FakeClock()
-    controller = GridController(serial, clock=clock, turn_source="imu")
-    plan = build_grid_route(
-        "1B",
-        GridGeometry(
-            10,
-            10,
-            5,
-            outbound_turn_degrees=90,
-            return_turn_degrees=90,
-        ),
-        EncoderCalibration(1, 4, 8),
-        turn_source="imu",
-    )
-    controller.request_grid_mission(plan)
-    controller.step_index = 3
-    controller._start_current_step()
-    serial.heading_fused_deg = 12.0
-
-    controller._complete_aruco_align()
-
-    assert controller.plan["return"][1]["target_degrees"] == 90
-    assert "matched_return_turn_degrees" not in controller.plan
+    assert detector.target_ids == [0, 0]
+    assert controller.get_status()["current_action"] == "BACKWARD"
+    assert serial.commands[-1] == "BACKWARD"
 
 
 def test_aruco_approach_creeps_forward_after_target_area():

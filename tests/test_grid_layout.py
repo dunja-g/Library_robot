@@ -59,8 +59,10 @@ def test_aruco_hybrid_route_uses_hallway_and_row_markers():
     assert route["outbound"][2]["target_degrees"] == 90
     assert route["return"][1]["target_degrees"] == 90
     assert [step["action"] for step in route["return"]] == [
-        "BACKWARD", "TURN_LEFT", "BACKWARD"
+        "BACKWARD", "TURN_LEFT", "ARUCO_ALIGN", "BACKWARD"
     ]
+    assert route["return"][2]["target_aruco_id"] == 0
+    assert route["return"][3].get("track_aruco_id") is None
 
 
 def test_all_rows_use_box_markers_and_semantic_turn_directions():
@@ -77,6 +79,8 @@ def test_all_rows_use_box_markers_and_semantic_turn_directions():
         assert route_b["outbound"][3]["target_aruco_id"] == marker_b
         assert route_a["return"][1]["action"] == "TURN_RIGHT"
         assert route_b["return"][1]["action"] == "TURN_LEFT"
+        assert route_a["return"][2]["target_aruco_id"] == 0
+        assert route_b["return"][2]["target_aruco_id"] == 0
 
 
 def test_return_backout_matches_approach_without_offset():
@@ -86,7 +90,7 @@ def test_return_backout_matches_approach_without_offset():
 
     assert route["outbound"][-1]["target_ticks"] == 350
     assert route["return"][0]["target_ticks"] == 350
-    assert route["return"][0]["track_aruco_id"] == 6
+    assert route["return"][0].get("track_aruco_id") is None
 
 
 def test_a_and_b_use_mirrored_turns():

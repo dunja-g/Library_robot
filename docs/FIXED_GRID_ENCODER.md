@@ -62,16 +62,13 @@ centre-aisle-to-column centre distance. Distance completion uses average
 left/right wheel travel, so steering corrections no longer make one row run
 farther than another. Return uses the same measured chassis-centre distance.
 
-The shelf-alignment step also records the fused IMU heading after all fine
-rotation pulses. The opposite return turn reuses its absolute angle, so a
-97-degree final shelf heading is undone by a 97-degree return turn and an
-86-degree heading by an 86-degree return turn. Only plausible 45–135 degree
-readings are accepted; otherwise the configured 90-degree target remains.
-Before that return turn, the controller also reads the signed heading change
-accumulated while backing out and calculates
-`abs(shelf entry heading + backout heading change)`. This avoids correcting the
-same angle twice. Backout changes above 30 degrees are treated as invalid and
-leave the previously matched return angle unchanged.
+The return turn uses the configured angle. Once that turn finishes, the robot
+stays stopped and uses short rotation pulses to place the Center code (hallway
+ArUco marker 0) near the middle of the camera view. It requires the configured
+number of centred frames before starting the reverse motor toward Dock. The
+final reverse segment does not apply moving ArUco trim, so the completed
+alignment cannot accidentally issue a forward correction or pull the robot
+away from the centred heading.
 
 The A route mirrors the B route. Route execution is non-blocking. All three
 ultrasonic data is validated during every moving or turning iteration.

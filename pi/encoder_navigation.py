@@ -13,9 +13,6 @@ import numpy as np
 
 
 MIN_WHEEL_COMPLETION_RATIO = 0.5
-MIN_MATCHED_TURN_DEGREES = 45.0
-MAX_MATCHED_TURN_DEGREES = 135.0
-MAX_BACKOUT_HEADING_DELTA_DEGREES = 30.0
 
 
 class GridState(str, Enum):
@@ -232,21 +229,6 @@ class GridController:
                 "return_actions": []
                 if self.plan is None
                 else [item["action"] for item in self.plan["return"]],
-                "shelf_entry_heading_degrees": (
-                    None
-                    if self.plan is None
-                    else self.plan.get("shelf_entry_heading_degrees")
-                ),
-                "matched_return_turn_degrees": (
-                    None
-                    if self.plan is None
-                    else self.plan.get("matched_return_turn_degrees")
-                ),
-                "return_backout_heading_delta_degrees": (
-                    None
-                    if self.plan is None
-                    else self.plan.get("return_backout_heading_delta_degrees")
-                ),
             }
             step = self._current_step()
             if step:
@@ -422,10 +404,6 @@ class GridController:
                     and slow_progress >= target_ticks * MIN_WHEEL_COMPLETION_RATIO
                 ):
                     self.serial.send_stop()
-                    self._compensate_return_turn_for_backout_heading(
-                        step,
-                        odometry,
-                    )
                     self.step_index += 1
                     if self.step_index >= len(self._current_steps()):
                         self._complete_phase()
@@ -983,110 +961,7 @@ class GridController:
         )
 
     def _complete_aruco_align(self) -> None:
-        steps = self._current_steps()
-        next_step = (
-            steps[self.step_index + 1]
-            if self.step_index + 1 < len(steps)
-            else None
-        )
-        if (
-            self.phase == "OUTBOUND"
-            and next_step is not None
-            and next_step.get("action") == "ARUCO_APPROACH"
-        ):
-            self._match_return_turn_to_shelf_heading()
         self._advance_step()
-
-    def _match_return_turn_to_shelf_heading(self) -> None:
-        """Undo the actual main turn plus shelf-alignment correction on return."""
-        if self.plan is None or not self.plan.get("return"):
-            return
-        get_odometry = getattr(self.serial, "get_odometry", None)
-        if not callable(get_odometry):
-            return
-        odometry = get_odometry()
-        if not isinstance(odometry, dict):
-            return
-        raw_heading = odometry.get("heading_fused_deg")
-        if raw_heading is None:
-            raw_heading = odometry.get("heading_imu_deg")
-        try:
-            signed_heading = float(raw_heading)
-        except (TypeError, ValueError):
-            return
-        matched_degrees = abs(signed_heading)
-        if (
-            not np.isfinite(matched_degrees)
-            or matched_degrees < MIN_MATCHED_TURN_DEGREES
-            or matched_degrees > MAX_MATCHED_TURN_DEGREES
-        ):
-            return
-        return_turn = self._return_turn_step()
-        if return_turn is None:
-            return
-        matched_degrees = round(matched_degrees, 1)
-        return_turn["target_degrees"] = matched_degrees
-        return_turn["matched_from_shelf_heading"] = True
-        self.plan["shelf_entry_heading_degrees"] = round(signed_heading, 1)
-        self.plan["matched_return_turn_degrees"] = matched_degrees
-        self._latest_odometry = dict(odometry)
-
-    def _return_turn_step(self) -> dict | None:
-        if self.plan is None:
-            return None
-        return next(
-            (
-                item
-                for item in self.plan.get("return", [])
-                if item.get("action") in {"TURN_LEFT", "TURN_RIGHT", "UTURN"}
-            ),
-            None,
-        )
-
-    def _compensate_return_turn_for_backout_heading(
-        self,
-        completed_step: dict,
-        odometry: dict | None,
-    ) -> None:
-        """Account for heading already corrected while reversing out of the shelf."""
-        if (
-            self.plan is None
-            or self.phase != "RETURNING"
-            or self.step_index != 0
-            or completed_step.get("action") != "BACKWARD"
-            or not isinstance(odometry, dict)
-        ):
-            return
-        entry_heading = self.plan.get("shelf_entry_heading_degrees")
-        raw_delta = odometry.get("heading_fused_deg")
-        if raw_delta is None:
-            raw_delta = odometry.get("heading_imu_deg")
-        try:
-            entry_heading = float(entry_heading)
-            backout_delta = float(raw_delta)
-        except (TypeError, ValueError):
-            return
-        if (
-            not np.isfinite(entry_heading)
-            or not np.isfinite(backout_delta)
-            or abs(backout_delta) > MAX_BACKOUT_HEADING_DELTA_DEGREES
-        ):
-            return
-        matched_degrees = abs(entry_heading + backout_delta)
-        if (
-            matched_degrees < MIN_MATCHED_TURN_DEGREES
-            or matched_degrees > MAX_MATCHED_TURN_DEGREES
-        ):
-            return
-        return_turn = self._return_turn_step()
-        if return_turn is None:
-            return
-        matched_degrees = round(matched_degrees, 1)
-        backout_delta = round(backout_delta, 1)
-        return_turn["target_degrees"] = matched_degrees
-        return_turn["compensated_for_backout_heading"] = True
-        self.plan["return_backout_heading_delta_degrees"] = backout_delta
-        self.plan["matched_return_turn_degrees"] = matched_degrees
 
     def _step_aruco_guided_forward(self) -> None:
         """Drive forward for a fixed encoder distance while tracking a marker."""

@@ -275,11 +275,12 @@ def build_grid_route(
     linear_source: str = "encoder",
     vision_source: str = "aruco",
 ) -> dict:
-    """Build a Dock-to-box route and blind encoder reverse return.
+    """Build a Dock-to-box route and a Center-marker-aligned reverse return.
 
     When ``vision_source='aruco'`` the outbound path uses hallway marker 0 and
-    row markers 1/2/3 from ``aruco_codes/generate_markers.py``. Return remains
-    encoder-only reverse. Select ``vision_source='encoder'`` for legacy routes.
+    shelf markers from ``data/generate_aruco_shelf_markers.py``. After the
+    return turn, hallway marker 0 is centred before reverse travel starts.
+    Select ``vision_source='encoder'`` for legacy routes.
     """
     box_id = normalize_box_id(box_id)
 
@@ -378,11 +379,17 @@ def build_grid_route(
         hallway = dict(hallway_step)
         hallway["track_aruco_id"] = HALLWAY_MARKER_ID
         return_escape = dict(return_route[0])
-        return_escape["track_aruco_id"] = shelf_marker
         return_dock = dict(return_route[2])
-        return_dock["track_aruco_id"] = HALLWAY_MARKER_ID
-        return_route[0] = return_escape
-        return_route[2] = return_dock
+        return_route = [
+            return_escape,
+            return_route[1],
+            _marker_step(
+                "ARUCO_ALIGN",
+                "Align Center code before reversing to Dock",
+                HALLWAY_MARKER_ID,
+            ),
+            return_dock,
+        ]
         outbound = [
             _marker_step(
                 "ARUCO_ALIGN",
