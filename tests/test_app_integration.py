@@ -43,6 +43,12 @@ def check_in(client):
 
 def test_app_is_fixed_grid_only_and_lists_numbered_books(monkeypatch, tmp_path):
     monkeypatch.setenv("LIBRARY_ROBOT_GRID_VISION_SOURCE", "aruco")
+    monkeypatch.setenv("LIBRARY_ROBOT_GRID_FIRST_ROW_CM", "36")
+    monkeypatch.setenv("LIBRARY_ROBOT_GRID_ROW_SPACING_CM", "57")
+    monkeypatch.setenv("LIBRARY_ROBOT_GRID_APPROACH_CM", "32")
+    monkeypatch.setenv("LIBRARY_ROBOT_GRID_COLUMN_SPACING_CM", "74")
+    monkeypatch.setenv("LIBRARY_ROBOT_GRID_OUTBOUND_TURN_DEGREES", "90")
+    monkeypatch.setenv("LIBRARY_ROBOT_GRID_RETURN_TURN_DEGREES", "90")
     _module, client = load_mock_app(monkeypatch, tmp_path)
     mode = client.get("/navigation_mode").get_json()
     assert mode["mode"] == "grid"
