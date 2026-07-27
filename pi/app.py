@@ -327,7 +327,7 @@ if USE_MOCK:
         aruco_scan_timeout_seconds=5.0,
         aruco_align_pulse_seconds=0.2,
         aruco_align_settle_seconds=2.0,
-        aruco_align_fine_pulse_seconds=0.12,
+        aruco_align_fine_pulse_seconds=0.08,
     )
     
     # Mock clock to advance rapidly so timed steps finish instantly in tests
