@@ -25,6 +25,8 @@ class FakeSerial:
     def send_backward(self): self.commands.append("BACKWARD"); return self.motion_ok
     def send_rotate_left(self): self.commands.append("ROTATE_LEFT"); return True
     def send_rotate_right(self): self.commands.append("ROTATE_RIGHT"); return True
+    def send_rotate_left_slow(self): self.commands.append("ROTATE_LEFT"); return True
+    def send_rotate_right_slow(self): self.commands.append("ROTATE_RIGHT"); return True
     def reset_encoders(self):
         self.commands.append("ENC_RESET")
         self.encoders = {"left": 0, "right": 0}

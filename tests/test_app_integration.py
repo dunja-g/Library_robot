@@ -4,8 +4,12 @@ import json
 from pi.encoder_navigation import GridState
 
 
-def load_mock_app(monkeypatch, tmp_path):
+def load_mock_app(monkeypatch, tmp_path, auto_return=None):
     monkeypatch.setenv("LIBRARY_ROBOT_USE_MOCK", "true")
+    if auto_return is not None:
+        monkeypatch.setenv("LIBRARY_ROBOT_AUTO_RETURN", "true" if auto_return else "false")
+    else:
+        monkeypatch.delenv("LIBRARY_ROBOT_AUTO_RETURN", raising=False)
     student_path = tmp_path / "students.json"
     student_path.write_text(
         json.dumps(
@@ -72,14 +76,17 @@ def test_app_is_fixed_grid_only_and_lists_numbered_books(monkeypatch, tmp_path):
 
 
 def test_auto_return_setting_controls_pickup_confirmation(monkeypatch, tmp_path):
-    monkeypatch.setenv("LIBRARY_ROBOT_AUTO_RETURN", "false")
     module, client = load_mock_app(monkeypatch, tmp_path)
-
     mode = client.get("/navigation_mode").get_json()
     plan = module._build_borrowing_plan(module.get_book("Deep Learning"))
-
     assert mode["auto_return"] is False
     assert plan["pickup_confirmation_required"] is True
+
+    module, client = load_mock_app(monkeypatch, tmp_path, auto_return=True)
+    mode = client.get("/navigation_mode").get_json()
+    plan = module._build_borrowing_plan(module.get_book("Deep Learning"))
+    assert mode["auto_return"] is True
+    assert plan["pickup_confirmation_required"] is False
 
 
 def test_aruco_plan_has_equal_approach_and_return_distances(monkeypatch, tmp_path):
@@ -140,7 +147,7 @@ def test_search_by_title_book_id_location_and_partial_text(monkeypatch, tmp_path
 
 def test_book_number_dispatches_with_aruco_hybrid_route(monkeypatch, tmp_path):
     monkeypatch.setenv("LIBRARY_ROBOT_GRID_VISION_SOURCE", "aruco")
-    module, client = load_mock_app(monkeypatch, tmp_path)
+    module, client = load_mock_app(monkeypatch, tmp_path, auto_return=True)
     check_in(client)
     response = client.post("/request_book", json={"query": "BK001"})
     payload = response.get_json()
@@ -222,7 +229,7 @@ def reach_destination(module):
 
 
 def test_book_is_recorded_automatically_after_arrival(monkeypatch, tmp_path):
-    module, client = load_mock_app(monkeypatch, tmp_path)
+    module, client = load_mock_app(monkeypatch, tmp_path, auto_return=True)
     payload = start_pending_mission(module, client)
     assert module.get_student_by_id("S001")["borrowed_book_id"] is None
 
@@ -410,7 +417,7 @@ def test_unavailable_book_is_rejected_before_mission_creation(
 def test_reset_after_confirmation_preserves_loan_and_session(
     monkeypatch, tmp_path
 ):
-    module, client = load_mock_app(monkeypatch, tmp_path)
+    module, client = load_mock_app(monkeypatch, tmp_path, auto_return=True)
     start_pending_mission(module, client)
     reach_destination(module)
     
@@ -423,4 +430,57 @@ def test_reset_after_confirmation_preserves_loan_and_session(
     status = client.get("/status").get_json()
     assert status["current_student"]["id"] == "S001"
     assert status["borrowing_mission"]["state"] == "confirmed"
+    assert module.get_student_by_id("S001")["borrowed_book_id"] == "BK001"
+
+
+def test_reject_pickup_returns_robot_without_borrowing_record(monkeypatch, tmp_path):
+    module, client = load_mock_app(monkeypatch, tmp_path)
+    payload = start_pending_mission(module, client)
+    assert module.get_student_by_id("S001")["borrowed_book_id"] is None
+
+    reach_destination(module)
+    module.controller.step()
+    module._reconcile_borrowing_state()
+
+    assert module.get_student_by_id("S001")["borrowed_book_id"] is None
+    assert module.controller.get_status()["phase"] == "AT_DESTINATION"
+    assert module.controller.get_status()["pickup_confirmation_required"] is True
+
+    response = client.post("/api/reject_pickup", json={"mission_id": payload["mission"]["mission_id"]})
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
+    assert response.get_json()["mission"]["state"] == "cancelled"
+
+    assert module.controller.get_status()["phase"] in {"RETURNING", "COMPLETE"}
+    assert module.controller.plan["return"][0]["action"] == "BACKWARD"
+
+    for _ in range(30):
+        module.controller.step()
+        if module.controller.get_state() == "DOCKED":
+            break
+    module._reconcile_borrowing_state()
+    status = client.get("/status").get_json()
+    assert status["state"] == "DOCKED"
+    assert status["phase"] == "COMPLETE"
+    assert status["current_student"] is None
+    assert status["borrowing_mission"] is None
+    assert module.get_student_by_id("S001")["borrowed_book_id"] is None
+
+
+def test_timeout_frozen_while_waiting_at_shelf(monkeypatch, tmp_path):
+    module, client = load_mock_app(monkeypatch, tmp_path)
+    start_pending_mission(module, client)
+    reach_destination(module)
+
+    module._get_current_mission().created_at -= (
+        module.MISSION_TIMEOUT_SECONDS + 100
+    )
+    module._reconcile_borrowing_state()
+
+    status = client.get("/status").get_json()
+    assert status["borrowing_mission"]["state"] == "pending"
+    assert status["state"] == "ARRIVED"
+
+    response = client.post("/api/confirm_pickup", json={})
+    assert response.status_code == 200
     assert module.get_student_by_id("S001")["borrowed_book_id"] == "BK001"

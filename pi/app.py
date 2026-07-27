@@ -90,7 +90,7 @@ if GRID_VISION_SOURCE not in {"encoder", "aruco"}:
     raise ValueError(
         "LIBRARY_ROBOT_GRID_VISION_SOURCE must be 'encoder' or 'aruco'"
     )
-_auto_return_raw = os.getenv("LIBRARY_ROBOT_AUTO_RETURN", "true").strip().lower()
+_auto_return_raw = os.getenv("LIBRARY_ROBOT_AUTO_RETURN", "false").strip().lower()
 if _auto_return_raw not in {"1", "true", "yes", "on", "0", "false", "no", "off"}:
     raise ValueError("LIBRARY_ROBOT_AUTO_RETURN must be true or false")
 AUTO_RETURN = _auto_return_raw in {"1", "true", "yes", "on"}
@@ -492,7 +492,12 @@ def _reconcile_borrowing_state() -> None:
             return
         status = controller.get_status()
         state = status["state"]
-        if mission.is_expired():
+        is_waiting_at_shelf = (
+            state == "ARRIVED"
+            and status.get("phase") == "AT_DESTINATION"
+            and status.get("pickup_confirmation_required", False)
+        )
+        if not is_waiting_at_shelf and mission.is_expired():
             controller.cancel("mission_timeout")
             _cancel_pending_mission("mission_timeout")
             return
@@ -527,7 +532,7 @@ def _reconcile_borrowing_state() -> None:
             except Exception as e:
                 logger.error(f"Failed to record auto-confirmation: {e}")
         if (
-            mission.state == BorrowingState.CONFIRMED
+            mission.state in {BorrowingState.CONFIRMED, BorrowingState.CANCELLED}
             and state == "DOCKED"
             and status.get("phase") == "COMPLETE"
         ):
@@ -926,6 +931,38 @@ def api_confirm_pickup():
         except Exception:
             if mission.mission_type != "return":
                 rollback_borrow_book(mission.student_id, mission.book_id)
+            return jsonify(
+                {"ok": False, "message": "Could not start return route"}
+            ), 503
+
+        refreshed_student = get_student_by_id(mission.student_id)
+        _set_current_student(refreshed_student)
+        return jsonify({"ok": True, "mission": mission.as_dict()}), 200
+
+
+@app.route("/api/reject_pickup", methods=["POST"])
+def api_reject_pickup():
+    global _current_borrowing_mission
+    data = request.get_json(silent=True) or {}
+    requested_mission_id = data.get("mission_id")
+    with _mission_lock:
+        mission = _current_borrowing_mission
+        if mission is None or mission.state != BorrowingState.PENDING:
+            return jsonify({"ok": False, "message": "No pending mission"}), 409
+        if requested_mission_id and requested_mission_id != mission.mission_id:
+            return jsonify({"ok": False, "message": "Mission mismatch"}), 409
+        status = controller.get_status()
+        if (
+            status["state"] != "ARRIVED"
+            or status.get("phase") != "AT_DESTINATION"
+        ):
+            return jsonify({"ok": False, "message": "Robot has not arrived"}), 409
+
+        try:
+            controller.reject_pickup()
+            mission.cancel("pickup_rejected")
+        except Exception as e:
+            logger.error(f"Could not start return route on reject: {e}")
             return jsonify(
                 {"ok": False, "message": "Could not start return route"}
             ), 503
