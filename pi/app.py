@@ -218,6 +218,14 @@ if USE_MOCK:
             self.turn_status = "ACTIVE"
             return True
 
+        # Mock LCD calls (no-op in mock mode)
+        def send_lcd_ready(self): return True
+        def send_lcd_follow(self): return True
+        def send_lcd_arrive(self): return True
+        def send_lcd_return(self): return True
+        def send_lcd_arrive_dock(self): return True
+        def send_lcd_error(self): return True
+
         def get_turn_status(self):
             if self.turn_status == "ACTIVE":
                 self.turn_status = "DONE"

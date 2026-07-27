@@ -192,6 +192,10 @@ class GridController:
                 plan.get("pickup_confirmation_required", False)
             )
             self._start_current_step()
+            try:
+                self.serial.send_lcd_follow()
+            except Exception:
+                pass
 
     def get_state(self) -> str:
         with self._lock:
@@ -319,6 +323,10 @@ class GridController:
             self.state = GridState.IDLE
             self.stop_reason = None
             self.plan = None
+            try:
+                self.serial.send_lcd_ready()
+            except Exception:
+                pass
             self.phase = None
             self.step_index = 0
             self._dwell_deadline = None
@@ -347,6 +355,10 @@ class GridController:
             self._awaiting_pickup_confirmation = False
             self.phase = "RETURNING"
             self.step_index = 0
+            try:
+                self.serial.send_lcd_return()
+            except Exception:
+                pass
             self.stop_reason = None
             self._dwell_deadline = None
             self._step_deadline = None
@@ -561,6 +573,10 @@ class GridController:
         if self.phase == "OUTBOUND":
             self.state = GridState.ARRIVED
             self.phase = "AT_DESTINATION"
+            try:
+                self.serial.send_lcd_arrive()
+            except Exception:
+                pass
             self.stop_reason = "destination_reached"
             self._dwell_deadline = (
                 None
@@ -569,6 +585,10 @@ class GridController:
             )
         else:
             self.state = GridState.DOCKED
+            try:
+                self.serial.send_lcd_ready()
+            except Exception:
+                pass
             self.phase = "COMPLETE"
             self.stop_reason = "dock_reached"
 
