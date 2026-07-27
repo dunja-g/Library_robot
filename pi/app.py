@@ -436,6 +436,12 @@ else:
     )
     qr_scanner.start()
 
+    # 启动时显示 Ready
+    try:
+        serial_bridge.send_lcd_ready()
+    except Exception:
+        pass
+
     def _shutdown_hardware():
         try:
             controller.reset()
