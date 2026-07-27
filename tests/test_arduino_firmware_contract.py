@@ -65,7 +65,8 @@ def test_firmware_integrates_person1_imu_turns_without_blocking_loop():
     assert "IMU_TURN_TIMEOUT_MS = 5000" in FIRMWARE
     assert "while (abs(angle)" not in FIRMWARE
     assert 'Serial.print("TURN:")' in FIRMWARE
-    assert "ROTATE_FINE_SPEED = 80" in FIRMWARE
+    assert "ROTATE_SPEED = 160" in FIRMWARE
+    assert "ROTATE_FINE_SPEED = 100" in FIRMWARE
     assert "IMU_TURN_FINE_ZONE_DEG = 15.0" in FIRMWARE
     assert "rotateRightAtSpeed(ROTATE_FINE_SPEED)" in FIRMWARE
     assert "rotateLeftAtSpeed(ROTATE_FINE_SPEED)" in FIRMWARE

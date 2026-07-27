@@ -496,10 +496,8 @@ function updateUI(data) {
 
   if (state !== previous && state === 'ARRIVED') {
     showToast(`Book location reached: ${data.location_code}`);
-    speak(`Book location reached. Box ${data.box_id}, layer ${data.layer}, position ${data.position}.`);
   } else if (state !== previous && state === 'DOCKED') {
     showToast('Robot returned to Dock');
-    speak('Return complete. The robot is back at the dock.');
   } else if (state !== previous && state === 'STOPPED') {
     showToast(`Safety stop: ${data.reason || 'inspect the robot'}`);
   }
@@ -635,13 +633,6 @@ function updateTimeline(state, phase = null) {
   }
 }
 
-function speak(message) {
-  if ('speechSynthesis' in window) {
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(new SpeechSynthesisUtterance(message));
-  }
-}
-
 function showToast(message) {
   const toast = document.getElementById('toast');
   toast.textContent = message;
@@ -710,17 +701,25 @@ function onStudentCheckedIn(student) {
 async function loadStudentPortal() {
   try {
     const res = await fetch('/api/students');
+    if (!res.ok) throw new Error(`Student portal request failed: ${res.status}`);
     const students = await res.json();
+    if (!Array.isArray(students)) throw new Error('Invalid student portal response');
     const tbody = document.getElementById('student-portal-tbody');
-    tbody.innerHTML = '';
+    tbody.replaceChildren();
     students.forEach(st => {
       const tr = document.createElement('tr');
+      const nameCell = document.createElement('td');
+      const statusCell = document.createElement('td');
       const statusClass = st.has_book ? 'status-borrowed' : 'status-available';
-      const statusText = st.has_book ? 'Borrowed' : 'Available';
-      tr.innerHTML = `
-        <td>${st.name}</td>
-        <td class="${statusClass}">${statusText}</td>
-      `;
+      const borrowedBook = catalogue.find(book => book.book_id === st.borrowed_book_id);
+
+      nameCell.textContent = st.name || st.id || 'Unknown student';
+      statusCell.className = statusClass;
+      statusCell.textContent = st.has_book
+        ? `Book borrowed: ${borrowedBook?.title || st.borrowed_book_id || 'Unknown book'}`
+        : 'No book borrowed';
+
+      tr.append(nameCell, statusCell);
       tbody.appendChild(tr);
     });
   } catch (err) {
