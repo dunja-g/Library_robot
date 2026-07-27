@@ -604,6 +604,10 @@ class GridController:
         self._dwell_deadline = None
         self._step_deadline = None
         self._start_current_step()
+        try:
+            self.serial.send_lcd_return()
+        except Exception:
+            pass
 
     def _step_timed_linear(self) -> None:
         """Advance a FORWARD or BACKWARD step using a time deadline instead of encoder ticks."""
