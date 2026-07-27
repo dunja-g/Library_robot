@@ -57,7 +57,7 @@ class GridController:
         aruco_scan_timeout_seconds: float = 60.0,
         aruco_align_pulse_seconds: float = 0.2,
         aruco_align_settle_seconds: float = 2.0,
-        aruco_align_fine_pulse_seconds: float = 0.12,
+        aruco_align_fine_pulse_seconds: float = 0.08,
         aruco_align_fine_settle_seconds: float = 0.4,
         aruco_align_max_search_pulses: int = 6,
         aruco_align_max_reacquire_pulses: int = 2,

@@ -49,7 +49,7 @@ class NavigationConfig:
     aruco_target_area_px: float = 8000.0
     aruco_align_pulse_seconds: float = 0.2
     aruco_align_settle_seconds: float = 2.0
-    aruco_align_fine_pulse_seconds: float = 0.12
+    aruco_align_fine_pulse_seconds: float = 0.08
     aruco_align_fine_settle_seconds: float = 0.4
     aruco_align_max_search_pulses: int = 6
     aruco_align_max_reacquire_pulses: int = 2
@@ -199,7 +199,7 @@ class NavigationConfig:
                 "LIBRARY_ROBOT_ARUCO_ALIGN_SETTLE_SECONDS", 2.0, float
             ),
             aruco_align_fine_pulse_seconds=_env_number(
-                "LIBRARY_ROBOT_ARUCO_ALIGN_FINE_PULSE_SECONDS", 0.12, float
+                "LIBRARY_ROBOT_ARUCO_ALIGN_FINE_PULSE_SECONDS", 0.08, float
             ),
             aruco_align_fine_settle_seconds=_env_number(
                 "LIBRARY_ROBOT_ARUCO_ALIGN_FINE_SETTLE_SECONDS", 0.4, float

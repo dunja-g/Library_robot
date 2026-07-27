@@ -8,6 +8,8 @@ def test_defaults_are_valid_for_current_camera_and_controller():
     assert (config.camera_width, config.camera_height) == (640, 480)
     assert config.target_confirmation_frames == 2
     assert config.target_loss_tolerance_frames == 3
+    assert config.aruco_align_pulse_seconds == 0.2
+    assert config.aruco_align_fine_pulse_seconds == 0.08
     assert config.invert_turn_direction is False
 
 
