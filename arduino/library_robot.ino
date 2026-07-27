@@ -214,9 +214,6 @@ void startImuTurn(float targetDeg) {
   imuTurnStartedMs = millis();
   imuTurnActive = true;
   imuTurnState = 1;
-  char buf[17];
-  snprintf(buf, 17, "Turn %s", targetDeg > 0 ? "R" : "L");
-  lcdStatus(buf, "");
 }
 
 void resetMotionEstimate() {
@@ -304,7 +301,6 @@ void updateImuTurn() {
     imuTurnActive = false;
     imuTurnDirection = 0;
     imuTurnState = 2;
-    lcdStatus("Turn Done", "");
     Serial.print("TURN_DONE:");
     Serial.println(imuTurnAngleDeg, 1);
   } else if (
@@ -314,7 +310,6 @@ void updateImuTurn() {
     imuTurnActive = false;
     imuTurnDirection = 0;
     imuTurnState = 3;
-    lcdStatus("Turn ERR!", "");
     Serial.println("TURN_ERROR:TIMEOUT");
   } else if (
     imuTurnActive
@@ -426,22 +421,18 @@ void handleCommand(const char *command) {
 
   if (strcmp(command, "FORWARD") == 0) {
     cancelImuTurn();
-    lcdStatus("Forward", "");
     moveStraight(FORWARD);
   } else if (strcmp(command, "BACKWARD") == 0) {
     dynamicSteerBias = 0;
     cancelImuTurn();
-    lcdStatus("Backward", "");
     moveStraight(BACKWARD);
   } else if (strcmp(command, "ROTATE_LEFT") == 0) {
     dynamicSteerBias = 0;
     cancelImuTurn();
-    lcdStatus("Rot Left", "");
     rotateLeft();
   } else if (strcmp(command, "ROTATE_RIGHT") == 0) {
     dynamicSteerBias = 0;
     cancelImuTurn();
-    lcdStatus("Rot Right", "");
     rotateRight();
   } else if (strncmp(command, "TURN_LEFT", 9) == 0) {
     dynamicSteerBias = 0;
@@ -470,7 +461,6 @@ void handleCommand(const char *command) {
     dynamicSteerBias = 0;
     cancelImuTurn();
     stopAll();
-    lcdStatus("Stopped", "");
   } else if (strcmp(command, "CHECK") == 0) {
     reportUltrasonic();
   } else if (strcmp(command, "ENCODER") == 0) {
@@ -570,7 +560,7 @@ void setup() {
   Serial.begin(115200);
   lcd.init();
   lcd.backlight();
-  lcdShow(" Library Robot", "   Starting...");
+  lcdShow(" Library Robot", "");
 
   pinMode(TRIG_LEFT, OUTPUT);
   pinMode(ECHO_LEFT, INPUT);
@@ -590,7 +580,6 @@ void setup() {
   resetMotionEstimate();
   stopAll();
   lastCommandMs = millis();
-  lcdStatus("Ready", "");
   Serial.println("READY");
 }
 
@@ -601,7 +590,6 @@ void loop() {
   // cut off by the normal serial-command watchdog.
   if (!imuTurnActive && motorsActive && millis() - lastCommandMs > COMMAND_TIMEOUT_MS) {
     stopAll();
-    lcdStatus("WATCHDOG", "");
     Serial.println("WATCHDOG:STOPPED");
   }
 }
