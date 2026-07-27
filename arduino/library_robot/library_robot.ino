@@ -560,7 +560,7 @@ void setup() {
   Serial.begin(115200);
   lcd.init();
   lcd.backlight();
-  lcdShow(" Library Robot", "");
+  lcdShow(" Library Robot", "    Ready!");
 
   pinMode(TRIG_LEFT, OUTPUT);
   pinMode(ECHO_LEFT, INPUT);
