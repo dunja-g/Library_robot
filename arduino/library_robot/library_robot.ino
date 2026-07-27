@@ -458,9 +458,9 @@ void handleCommand(const char *command) {
   } else if (strcmp(command, "TURN_STATUS") == 0) {
     reportImuTurnStatus();
   } else if (strcmp(command, "ROTATE_LEFT_SLOW") == 0) {
-    rotateLeftAtSpeed(100);
+    rotateLeftAtSpeed(130);
   } else if (strcmp(command, "ROTATE_RIGHT_SLOW") == 0) {
-    rotateRightAtSpeed(100);
+    rotateRightAtSpeed(130);
   } else if (strcmp(command, "STOP") == 0) {
     dynamicSteerBias = 0;
     cancelImuTurn();
