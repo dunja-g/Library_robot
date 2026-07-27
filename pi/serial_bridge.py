@@ -78,6 +78,12 @@ class SerialBridge:
     def send_rotate_right(self) -> bool:
         return self._send("ROTATE_RIGHT")
 
+    def send_rotate_left_slow(self) -> bool:
+        return self._send("ROTATE_LEFT_SLOW")
+
+    def send_rotate_right_slow(self) -> bool:
+        return self._send("ROTATE_RIGHT_SLOW")
+
     def send_turn_left(self, degrees: float | None = None) -> bool:
         """Request a self-terminating IMU turn (defaults to 90 degrees)."""
         return self._send("TURN_LEFT" if degrees is None else f"TURN_LEFT:{degrees:.1f}")

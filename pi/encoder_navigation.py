@@ -701,9 +701,9 @@ class GridController:
         self._align_pulse_deadline = self._clock() + duration
         self.state = GridState.TURNING
         if direction == "left":
-            self.serial.send_rotate_left()
+            self.serial.send_rotate_left_slow()
         else:
-            self.serial.send_rotate_right()
+            self.serial.send_rotate_right_slow()
 
     def _marker_error_x(self, frame: Any, detection: dict) -> float:
         return float(detection["center_x"]) - (frame.shape[1] / 2.0)
