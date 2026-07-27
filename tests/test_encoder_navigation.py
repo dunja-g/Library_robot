@@ -271,6 +271,28 @@ def test_confirmation_mission_waits_at_shelf_before_reverse_return():
     assert controller.get_status()["current_action"] == "BACKWARD"
 
 
+def test_rejection_mission_waits_at_shelf_before_reverse_return():
+    serial, clock = FakeSerial(), FakeClock()
+    controller = GridController(serial, clock=clock, destination_dwell_seconds=0)
+    plan = build_grid_route(
+        "1A", GridGeometry(10, 10, 5), EncoderCalibration(1, 4, 8),
+        vision_source="encoder",
+    )
+    plan["pickup_confirmation_required"] = True
+    controller.request_grid_mission(plan)
+    for _ in range(3):
+        complete_step(controller, serial)
+
+    clock.now = 100
+    controller.step()
+    assert controller.get_state() == GridState.ARRIVED.value
+    assert controller.get_status()["pickup_confirmation_required"] is True
+
+    controller.reject_pickup()
+    assert controller.get_status()["phase"] == "RETURNING"
+    assert controller.get_status()["current_action"] == "BACKWARD"
+
+
 def test_duplicate_grid_mission_is_rejected():
     controller, _serial, _clock = make_controller()
     duplicate = build_grid_route(

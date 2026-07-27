@@ -364,6 +364,23 @@ class GridController:
             self._step_deadline = None
             self._start_current_step()
 
+    def reject_pickup(self) -> None:
+        """Start the return route after the user declines taking the book."""
+        with self._lock:
+            if (
+                self.state != GridState.ARRIVED
+                or self.phase != "AT_DESTINATION"
+                or not self._awaiting_pickup_confirmation
+            ):
+                raise RuntimeError("Pickup confirmation is not currently expected")
+            self._awaiting_pickup_confirmation = False
+            self.phase = "RETURNING"
+            self.step_index = 0
+            self.stop_reason = None
+            self._dwell_deadline = None
+            self._step_deadline = None
+            self._start_current_step()
+
     def cancel(self, reason: str = "mission_cancelled") -> None:
         """Stop an active mission without pretending that the robot is docked."""
         with self._lock:
