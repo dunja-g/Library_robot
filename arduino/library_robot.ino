@@ -13,8 +13,8 @@ AF_DCMotor motorRightFront(2);
 AF_DCMotor motorRightRear(3);
 
 const uint8_t FORWARD_SPEED = 180;
-const uint8_t ROTATE_SPEED = 120;
-const uint8_t ROTATE_FINE_SPEED = 80;
+const uint8_t ROTATE_SPEED = 160;
+const uint8_t ROTATE_FINE_SPEED = 100;
 const float IMU_TURN_FINE_ZONE_DEG = 15.0;
 int leftSpeedReduction = 15;
 float fusionAlpha = 0.95;
